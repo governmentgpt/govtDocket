@@ -2,7 +2,6 @@ services:
   - type: web
     name: govt-docket-ui
     runtime: static
-    plan: free
     branch: main
     buildCommand: echo "GovGPT static UI — no build step required"
     staticPublishPath: .
