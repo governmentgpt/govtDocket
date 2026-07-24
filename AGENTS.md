@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-GovGPT is a public Government Knowledge Platform. Keep the application small and easy to deploy:
+WikiGov is a public Government Knowledge Platform. Keep the application small and easy to deploy:
 
 - `index.html` is the browser entry point.
 - `src/` holds application JavaScript and styles; organize larger features in folders such as `src/views/` and `src/components/`.
@@ -38,7 +38,7 @@ After launch, maintain a governed knowledge factory for ingestion, OCR, validati
 
 ## Testing Guidelines
 
-Verify relevant flows at desktop and mobile widths: search submission, role/language switching, keyboard navigation, and focus states. Add tests for non-trivial logic under `tests/`, naming them after behavior (for example, `search-submission.test.js`).
+Do not perform local browser or server testing. All functional and visual testing of the UI is performed on the hosted Render instance (https://govt-docket-ui.onrender.com). For the database layer, all schema changes are developed locally as migration files, which the user will manually apply to their Supabase instance before testing the live environment.
 
 ## Commit & Pull Request Guidelines
 

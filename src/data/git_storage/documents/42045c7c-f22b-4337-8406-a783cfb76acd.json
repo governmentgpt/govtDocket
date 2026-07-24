@@ -1,0 +1,44 @@
+{
+  "id": "42045c7c-f22b-4337-8406-a783cfb76acd",
+  "url": "https://www.tn.gov.in/go_ms_118",
+  "docType": "Government Order",
+  "issuingAuthority": "Social Welfare and Women Empowerment Department",
+  "version": {
+    "id": "919604a0-ffe1-4cff-993f-eb7cd6c90c4a",
+    "documentId": "42045c7c-f22b-4337-8406-a783cfb76acd",
+    "versionNumber": 1,
+    "title": "Kalaignar Magalir Urimai Thittam - Guidelines",
+    "effectiveDate": "2026-07-14",
+    "hash": "f2b187b63fabdf4edddc5f56de9084ec90ebca64c1fe74eec8060356c32a13a4"
+  },
+  "passages": [
+    {
+      "id": "4439b5d2-f6f2-446a-b54b-725557b2fc08",
+      "versionId": "919604a0-ffe1-4cff-993f-eb7cd6c90c4a",
+      "pageNumber": 1,
+      "sectionLabel": "Header Info",
+      "textContent": "GOVERNMENT OF TAMIL NADU\nSocial Welfare and Women Empowerment Department\nG.O. (Ms) No. 118, Dated 14.07.2026\n\nSUBJECT: Implementation of Kalaignar Magalir Urimai Thittam - Release of basic guidelines for eligibility.\nORDER:\nThe Government of Tamil Nadu hereby registers the basic guidelines for the Kalaignar Magalir Urimai Thittam scheme."
+    },
+    {
+      "id": "b0fafd8c-dfa5-4569-ab13-e60ad28d2d64",
+      "versionId": "919604a0-ffe1-4cff-993f-eb7cd6c90c4a",
+      "pageNumber": 2,
+      "sectionLabel": "Page 1",
+      "textContent": "1: The scheme provides a monthly financial support of Rs. 1,000 to eligible women heads of households."
+    },
+    {
+      "id": "b664dba1-c99b-4fe6-8e38-778b1471fd3c",
+      "versionId": "919604a0-ffe1-4cff-993f-eb7cd6c90c4a",
+      "pageNumber": 3,
+      "sectionLabel": "Page 2",
+      "textContent": "2: Eligible applicants must be women who are permanent residents of Tamil Nadu, above 21 years of age, and whose annual household income is below Rs. 2.5 Lakhs."
+    },
+    {
+      "id": "f22a3184-2673-43b0-8248-b70455e0ad5d",
+      "versionId": "919604a0-ffe1-4cff-993f-eb7cd6c90c4a",
+      "pageNumber": 4,
+      "sectionLabel": "Page 3",
+      "textContent": "3: Applications must be submitted through the designated registration camps. Required documents include Aadhaar Card, Smart Family Card, and Income Certificate."
+    }
+  ]
+}

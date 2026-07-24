@@ -1,0 +1,36 @@
+{
+  "id": "widow-pension-scheme",
+  "type": "scheme",
+  "version": {
+    "titleEn": "Kalaignar Magalir Urimai Thittam",
+    "titleTa": "கலைஞர் மகளிர் உரிமைத் திட்டம்",
+    "summaryEn": "Monthly financial assistance of Rs. 1,000 for women heads of households.",
+    "summaryTa": "குடும்பத் தலைவிகளுக்கு மாதம் ரூ. 1,000 நிதியுதவி வழங்கும் திட்டம்.",
+    "detailsEn": [
+      "Monthly financial assistance of Rs. 1,000.",
+      "Annual household income must be under Rs. 2.5 Lakhs.",
+      "Age must be above 21 years."
+    ],
+    "detailsTa": [
+      "மாதாந்திர உதவித்தொகை ரூ. 1,000.",
+      "குடும்ப ஆண்டு வருமானம் ரூ. 2.5 லட்சத்திற்கு மிகாமல் இருக்க வேண்டும்.",
+      "வயது 21 நிரம்பியவராக இருக்க வேண்டும்."
+    ],
+    "status": "approved",
+    "validFrom": "2026-07-14T00:00:00Z"
+  },
+  "aliases": [
+    {
+      "alias": "Kalaignar Magalir Scheme",
+      "lang": "EN"
+    },
+    {
+      "alias": "Magalir Urimai Thittam",
+      "lang": "EN"
+    },
+    {
+      "alias": "மகளிர் உரிமைத் திட்டம்",
+      "lang": "TA"
+    }
+  ]
+}

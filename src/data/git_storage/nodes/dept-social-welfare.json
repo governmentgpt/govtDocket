@@ -1,0 +1,28 @@
+{
+  "id": "dept-social-welfare",
+  "type": "department",
+  "version": {
+    "titleEn": "Social Welfare and Women Empowerment",
+    "titleTa": "சமூக நலன் மற்றும் மகளிர் உரிமைத் துறை",
+    "summaryEn": "State department responsible for social assistance and women empowerment.",
+    "summaryTa": "சமூக உதவி மற்றும் மகளிர் மேம்பாட்டிற்கு பொறுப்பான அரசுத் துறை.",
+    "detailsEn": [
+      "Responsible for Kalaignar Magalir scheme implementation."
+    ],
+    "detailsTa": [
+      "கலைஞர் மகளிர் உரிமைத் திட்டத்தை செயல்படுத்துவதற்குப் பொறுப்பானது."
+    ],
+    "status": "approved",
+    "validFrom": "2026-07-14T00:00:00Z"
+  },
+  "aliases": [
+    {
+      "alias": "Social Welfare Department",
+      "lang": "EN"
+    },
+    {
+      "alias": "சமூக நலத்துறை",
+      "lang": "TA"
+    }
+  ]
+}

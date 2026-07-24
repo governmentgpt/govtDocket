@@ -1,0 +1,30 @@
+name = "wikigov-api"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# ──────────────────────────────────────────────────────────
+# Routes — all /api/* calls are handled by this Worker.
+# Set WIKIGOV_API_URL on Render to point to this worker's
+# *.workers.dev URL (or your custom domain).
+# ──────────────────────────────────────────────────────────
+# routes = [
+#   { pattern = "api.wikigov.in/*", zone_name = "wikigov.in" }
+# ]
+
+# ──────────────────────────────────────────────────────────
+# Secrets — set these via `wrangler secret put <NAME>`
+# NEVER put real values here; this file is committed to Git.
+# ──────────────────────────────────────────────────────────
+# Required secrets:
+#   SUPABASE_URL        – your project's REST endpoint
+#   SUPABASE_ANON_KEY   – anon/public key (safe for Workers)
+#   NVIDIA_API_KEY      – NVIDIA NIM (build.nvidia.com) key
+
+[vars]
+# Non-secret runtime config (safe to commit)
+APP_ENV = "production"
+RAG_MAX_HOPS = "2"
+RAG_ALIAS_LIMIT = "5"
+# NVIDIA NIM model id — override the code default here if desired.
+NVIDIA_MODEL = "meta/llama-3.1-70b-instruct"

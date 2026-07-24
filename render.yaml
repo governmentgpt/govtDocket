@@ -3,7 +3,7 @@ services:
     name: govt-docket-ui
     runtime: static
     branch: main
-    buildCommand: echo "GovGPT static UI — no build step required"
+    buildCommand: echo "WikiGov static UI — no build step required"
     staticPublishPath: .
     autoDeployTrigger: commit
     headers:

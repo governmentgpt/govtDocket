@@ -1,0 +1,10 @@
+{
+  "id": "4fd5bf79-d087-414d-82cb-a39d76593d1d",
+  "from": "widow-pension-scheme",
+  "to": "dept-social-welfare",
+  "relationship": "governed_by",
+  "evidence": {
+    "passageId": "4439b5d2-f6f2-446a-b54b-725557b2fc08",
+    "approvedBy": "system-ingest-steward"
+  }
+}

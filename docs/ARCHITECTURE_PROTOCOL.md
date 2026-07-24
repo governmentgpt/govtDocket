@@ -1,8 +1,8 @@
-# GovGPT Architecture Protocol
+# WikiGov Architecture Protocol
 
 ## Purpose
 
-GovGPT is a public Government Knowledge Platform. It must deliver answers that are official, verifiable, traceable, and continuously governed—not merely plausible AI responses.
+WikiGov is a public Government Knowledge Platform. It must deliver answers that are official, verifiable, traceable, and continuously governed—not merely plausible AI responses.
 
 ## Delivery Order
 

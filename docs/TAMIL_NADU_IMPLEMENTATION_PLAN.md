@@ -1,8 +1,8 @@
-# GovGPT Tamil Nadu Implementation Plan
+# WikiGov Tamil Nadu Implementation Plan
 
 ## Purpose
 
-Build GovGPT as a Tamil Nadu-first public Government Knowledge Platform. Citizens must be able to ask natural-language questions without an account, receive a simple answer, inspect its evidence, and explore its policy context through an interactive knowledge map.
+Build WikiGov as a Tamil Nadu-first public Government Knowledge Platform. Citizens must be able to ask natural-language questions without an account, receive a simple answer, inspect its evidence, and explore its policy context through an interactive knowledge map.
 
 The product is not a generic chatbot. Every public claim must be traceable to an approved official source, a specific document version, and an exact passage. The knowledge graph is the product's canonical model; chat, timelines, related-content cards, and the 3D map are views over that model.
 
@@ -11,7 +11,7 @@ The product is not a generic chatbot. Every public claim must be traceable to an
 ### Citizen flow
 
 1. A user asks a plain-language question in Tamil or English.
-2. GovGPT identifies the most relevant verified topic, event, scheme, policy, or document.
+2. WikiGov identifies the most relevant verified topic, event, scheme, policy, or document.
 3. The chat workspace presents a clear answer first, with a "verified as of" timestamp and citations.
 4. The adjacent knowledge map centres on the active node and shows five to eight high-confidence connected nodes.
 5. Selecting a node updates the answer, source panel, timeline, and map focus.
@@ -194,7 +194,7 @@ Tamil Nadu department policies commonly permit reproduction only with proper att
 
 ### Authority tiers
 
-| Tier | Source class | GovGPT treatment |
+| Tier | Source class | WikiGov treatment |
 |---|---|---|
 | A — legal authority | Tamil Nadu Gazette, extraordinary gazettes, Acts, rules, notified Government Orders | Primary evidence; highest authority |
 | B — departmental authority | Secretariat/department sites, commissionerates, district portals, GO/circular lists, policy notes, manuals | Primary evidence for departmental schemes and processes |

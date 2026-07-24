@@ -25,7 +25,7 @@ const graph = {
       kicker: 'EDUCATION TOPIC',
       type: 'topic',
       status: 'Needs source connection',
-      summary: 'This demonstration node shows how GovGPT will organise an education-related question into verified updates, notices, schedules, and official references. The production answer will be generated only from approved Tamil Nadu sources.',
+      summary: 'This demonstration node shows how WikiGov will organise an education-related question into verified updates, notices, schedules, and official references. The production answer will be generated only from approved Tamil Nadu sources.',
       details: ['Use the map to inspect connected information.', 'Every production node will carry an approving authority and exact source passage.', 'Unverified information will not be presented as fact.'],
       sources: [
         ['Source registry required', 'Official department source will be attached after review'],
@@ -61,6 +61,36 @@ const graph = {
       details: ['Each point has valid-from and valid-to dates.', 'Superseded information stays available for traceability.'],
       sources: [['Versioned document chain', 'Source evidence required']],
     },
+    'widow-pension-scheme': {
+      title: 'Kalaignar Magalir Urimai Thittam',
+      kicker: 'SCHEME BENEFIT',
+      type: 'scheme',
+      status: 'Source verified',
+      summary: 'This scheme provides monthly financial assistance of Rs. 1,000 to eligible women heads of households in Tamil Nadu, governed by G.O. (Ms) No. 118.',
+      details: [
+        'Must be a permanent resident of Tamil Nadu.',
+        'Must be above 21 years of age.',
+        'Annual household income must be below Rs. 2.5 Lakhs.',
+        'Required documents: Aadhaar Card, Smart Family Card, Income Certificate.'
+      ],
+      sources: [
+        ['G.O. (Ms) No. 118, Dated 14.07.2026', 'Social Welfare and Women Empowerment Department Guidelines (Page 2-3)']
+      ]
+    },
+    'dept-social-welfare': {
+      title: 'Social Welfare & Women Empowerment Dept',
+      kicker: 'DEPARTMENT',
+      type: 'department',
+      status: 'Directory verified',
+      summary: 'State department responsible for formulating policies and guidelines for social assistance, women empowerment, and managing schemes like Kalaignar Magalir Urimai Thittam.',
+      details: [
+        'Responsible for scheme guidelines publishing.',
+        'Manages registration camps and application validation queues.'
+      ],
+      sources: [
+        ['Tamil Nadu Department Registry', 'Official directory connection verified']
+      ]
+    }
   },
   edges: [
     ['education-topic', 'official-notice', 'published through', 0.95],
@@ -70,6 +100,7 @@ const graph = {
     ['education-topic', 'policy-history', 'has history', 0.65],
     ['official-notice', 'exam-schedule', 'announces', 0.73],
     ['exam-schedule', 'results-update', 'precedes', 0.58],
+    ['widow-pension-scheme', 'dept-social-welfare', 'governed by', 0.95]
   ],
 };
 
@@ -100,8 +131,8 @@ function icon(name) {
 
 function renderHeader() {
   return `<header class="site-header">
-    <button class="brand" data-action="home" aria-label="GovGPT home">
-      <span class="brand-mark">G</span><span><b>GovGPT</b><small>Government Knowledge Platform</small></span>
+    <button class="brand" data-action="home" aria-label="WikiGov home">
+      <span class="brand-mark">W</span><span><b>WikiGov</b><small>Government Knowledge Platform</small></span>
     </button>
     <div class="header-actions">
       <div class="language-toggle" aria-label="Language selection"><button class="${state.lang === 'EN' ? 'active' : ''}" data-lang="EN">EN</button><button class="${state.lang === 'TA' ? 'active' : ''}" data-lang="TA">தமிழ்</button></div>
@@ -115,7 +146,7 @@ function renderHome() {
     <section class="hero">
       <div class="hero-copy"><p class="eyebrow light">TAMIL NADU · PUBLIC ACCESS</p><h1>Search verified<br />Government Knowledge.</h1><p>Ask in simple language. Every production answer will be traceable to an approved Government Order, Act, circular, notification, or department source.</p></div>
       <form class="hero-search" id="search-form">
-        ${icon('search')}<input id="hero-query" value="${esc(state.query)}" autocomplete="off" placeholder="Ask about schemes, GO, Acts, departments, applications..." aria-label="Ask GovGPT" />
+        ${icon('search')}<input id="hero-query" value="${esc(state.query)}" autocomplete="off" placeholder="Ask about schemes, GO, Acts, departments, applications..." aria-label="Ask WikiGov" />
         <button type="submit">Ask ${icon('arrow')}</button>
       </form>
       <div class="topic-row"><span>Popular topics</span>${data.topics.map((topic) => `<button class="topic-chip" data-query="${esc(topic)}">${esc(topic)}</button>`).join('')}</div>
@@ -135,6 +166,7 @@ function nodePosition(id) {
   return {
     'education-topic': [52, 47], 'official-notice': [27, 22], 'exam-schedule': [78, 25],
     'results-update': [83, 64], 'department': [27, 72], 'policy-history': [54, 84],
+    'widow-pension-scheme': [40, 50], 'dept-social-welfare': [15, 48]
   }[id];
 }
 
@@ -167,10 +199,10 @@ function renderWorkspace() {
   return `<main class="workspace">
     <aside class="conversation-rail"><div class="rail-top"><span class="panel-label">CONVERSATION</span><button class="new-chat" data-action="home">+ New search</button></div><button class="conversation active"><span class="conversation-icon">${icon('search')}</span><span>School examination information<small>Current exploration</small></span></button><div class="rail-group"><span>RECENTLY EXPLORED</span><button class="conversation"><span>Women welfare schemes</span></button><button class="conversation"><span>Property registration process</span></button><button class="conversation"><span>Farmer support programmes</span></button></div><div class="rail-bottom"><span class="lock-icon">⌁</span><p>No account required.<br /><small>Private conversations stay in this browser.</small></p></div></aside>
     <section class="chat-stage">
-      <div class="workspace-mobile-title"><button data-action="home">←</button><span>GovGPT workspace</span><button data-toggle-map>${icon('map')}</button></div>
+      <div class="workspace-mobile-title"><button data-action="home">←</button><span>WikiGov workspace</span><button data-toggle-map>${icon('map')}</button></div>
       <div class="chat-scroll">
         <div class="user-message">${esc(state.messages[0].text)}</div>
-        <article class="answer-card"><div class="answer-head"><span class="answer-mark">G</span><div><b>GovGPT verified answer</b><small>Demonstration response · source connection required</small></div><span class="answer-badge">${icon('info')} Prototype</span></div>
+        <article class="answer-card"><div class="answer-head"><span class="answer-mark">W</span><div><b>WikiGov verified answer</b><small>Demonstration response · source connection required</small></div><span class="answer-badge">${icon('info')} Prototype</span></div>
           <p class="answer-lead">${esc(node.summary)}</p>
           <div class="answer-detail"><h3>What this knowledge map can show</h3><ul>${node.details.map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div>
           <div class="citation-strip"><span>${icon('file')} ${esc(node.kicker)}</span><button data-select-source>View source model ${icon('arrow')}</button></div>
@@ -178,7 +210,7 @@ function renderWorkspace() {
         </article>
         <div class="followups"><span>Explore next</span><button data-node="official-notice">Show official notices</button><button data-node="policy-history">Show policy history</button><button data-node="department">Which department owns this?</button></div>
       </div>
-      <form class="composer" id="chat-form"><textarea id="chat-query" rows="1" placeholder="Ask a follow-up or a new question..." aria-label="Ask a follow-up"></textarea><button type="submit" aria-label="Send question">${icon('send')}</button><small>GovGPT will answer only from approved source material.</small></form>
+      <form class="composer" id="chat-form"><textarea id="chat-query" rows="1" placeholder="Ask a follow-up or a new question..." aria-label="Ask a follow-up"></textarea><button type="submit" aria-label="Send question">${icon('send')}</button><small>WikiGov will answer only from approved source material.</small></form>
     </section>
     <aside class="map-rail ${state.mapOpen ? '' : 'closed'}">${renderMap()}${renderSources(node)}</aside>
   </main>`;
@@ -189,9 +221,43 @@ function render() {
   bindEvents();
 }
 
+const nodeAliases = {
+  'widow-pension-scheme': ['pension', 'magalir', 'urimai', 'kalaignar', 'women', 'benefit', 'eligibility', 'income', 'monthly', 'rs. 1000', 'residents'],
+  'dept-social-welfare': ['welfare', 'empowerment', 'social welfare', 'women department'],
+  'education-topic': ['education', 'exam', 'school', 'examination', 'class'],
+  'official-notice': ['notice', 'announcement', 'official examine'],
+  'exam-schedule': ['schedule', 'timetable', 'date', 'dates', 'time window'],
+  'results-update': ['result', 'grade', 'marks', 'results update', 'publication'],
+  'department': ['school education department', 'education dept', 'education agency'],
+  'policy-history': ['history', 'policy', 'amendment', 'timeline', 'supersede', 'validity']
+};
+
+function resolveVectorlessRAG(query) {
+  const normalized = query.toLowerCase();
+  let matchedNode = null;
+  let bestScore = 0;
+  for (const [nodeId, aliases] of Object.entries(nodeAliases)) {
+    for (const alias of aliases) {
+      if (normalized.includes(alias)) {
+        const score = alias.length;
+        if (score > bestScore) {
+          bestScore = score;
+          matchedNode = nodeId;
+        }
+      }
+    }
+  }
+  return matchedNode || 'education-topic';
+}
+
 function openWorkspace(query = '') {
-  if (query) state.messages[0].text = query;
-  state.query = ''; state.screen = 'workspace'; state.selected = graph.root; render();
+  if (query) {
+    state.messages[0].text = query;
+    state.selected = resolveVectorlessRAG(query);
+  } else {
+    state.selected = graph.root;
+  }
+  state.query = ''; state.screen = 'workspace'; render();
 }
 
 function bindEvents() {
@@ -202,7 +268,7 @@ function bindEvents() {
   const searchForm = $('#search-form');
   if (searchForm) searchForm.addEventListener('submit', (event) => { event.preventDefault(); const query = $('#hero-query').value.trim(); openWorkspace(query || 'Help me understand Tamil Nadu school examination information.'); });
   const chatForm = $('#chat-form');
-  if (chatForm) chatForm.addEventListener('submit', (event) => { event.preventDefault(); const query = $('#chat-query').value.trim(); if (query) { state.messages[0].text = query; state.selected = query.toLowerCase().includes('department') ? 'department' : query.toLowerCase().includes('history') ? 'policy-history' : graph.root; render(); } });
+  if (chatForm) chatForm.addEventListener('submit', (event) => { event.preventDefault(); const query = $('#chat-query').value.trim(); if (query) { state.messages[0].text = query; state.selected = resolveVectorlessRAG(query); render(); } });
   document.querySelectorAll('[data-node]').forEach((el) => el.addEventListener('click', () => { state.selected = el.dataset.node; render(); }));
   document.querySelectorAll('.graph-node').forEach((el) => { el.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); state.selected = el.dataset.node; render(); } }); });
   const mapToggle = $('[data-toggle-map]'); if (mapToggle) mapToggle.addEventListener('click', () => { state.mapOpen = !state.mapOpen; render(); });
