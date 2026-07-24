@@ -104,10 +104,45 @@ const graph = {
   ],
 };
 
+// Live API base URL. Set window.WIKIGOV_API_URL in index.html to the deployed
+// Worker origin (e.g. https://wikigov-api.<subdomain>.workers.dev). When empty,
+// the UI runs on the built-in demonstration data.
+const API_BASE_URL = (typeof window !== 'undefined' && window.WIKIGOV_API_URL) || '';
+
 const state = {
   screen: 'home', lang: 'EN', query: '', selected: graph.root, mapOpen: true,
   messages: [{ role: 'user', text: 'Help me understand Tamil Nadu school examination information.' }],
+  live: null,      // populated with { answer, citations, graph } when the API is used
+  loading: false,
 };
+
+// ── Live retrieval API ─────────────────────────────────────────────────────────
+async function askApi(query) {
+  const res = await fetch(`${API_BASE_URL}/api/query?q=${encodeURIComponent(query)}`);
+  if (!res.ok) throw new Error(`API responded ${res.status}`);
+  return res.json();   // { answer, citations:[], graph:{ nodes:[], edges:[] } }
+}
+
+// Runs a query through the live API when configured, else the demo resolver.
+async function runQuery(query) {
+  state.messages[0].text = query;
+  if (!API_BASE_URL) {
+    state.live = null;
+    state.selected = resolveVectorlessRAG(query);
+    state.screen = 'workspace';
+    return render();
+  }
+  state.loading = true; state.screen = 'workspace'; state.live = null; render();
+  try {
+    const data = await askApi(query);
+    state.live = data;
+  } catch (err) {
+    state.live = { answer: `The knowledge service is unavailable right now (${err.message}).`, citations: [], graph: { nodes: [], edges: [] } };
+  } finally {
+    state.loading = false;
+    render();
+  }
+}
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -194,31 +229,79 @@ function renderSources(node) {
   return `<section class="source-panel"><div class="panel-label">SOURCE EVIDENCE</div><div class="source-status"><span class="status-dot"></span><span>${esc(node.status)}</span></div>${node.sources.map(([name, desc]) => `<div class="source-card"><div class="source-icon">${icon('file')}</div><div><b>${esc(name)}</b><p>${esc(desc)}</p></div><button title="Open source">${icon('external')}</button></div>`).join('')}<p class="source-note">Production nodes show the original source, exact citation, review status, and capture time.</p></section>`;
 }
 
+function renderLiveAnswer() {
+  if (state.loading) {
+    return `<article class="answer-card"><div class="answer-head"><span class="answer-mark">W</span><div><b>WikiGov verified answer</b><small>Retrieving verified sources…</small></div></div><p class="answer-lead">Searching the approved knowledge base…</p></article>`;
+  }
+  const live = state.live;
+  const citeStrip = (live.citations || []).map((c) =>
+    `<span>${icon('file')} ${esc(c.document || 'Source')}${c.page ? `, p.${esc(c.page)}` : ''}</span>`
+  ).join('');
+  const related = (live.graph?.nodes || []).slice(0, 6).map((n) =>
+    `<button data-query="${esc(n.title || n.id)}">${esc(n.title || n.id)}</button>`
+  ).join('');
+  return `<article class="answer-card"><div class="answer-head"><span class="answer-mark">W</span><div><b>WikiGov verified answer</b><small>Grounded in approved Tamil Nadu sources</small></div><span class="answer-badge">${icon('info')} Live</span></div>
+      <p class="answer-lead">${esc(live.answer || 'No verified information was found.')}</p>
+      ${citeStrip ? `<div class="citation-strip">${citeStrip}</div>` : ''}
+      <div class="answer-feedback"><span>Is this helpful?</span><button>Helpful</button><button>Needs improvement</button><button class="report">Report issue</button></div>
+    </article>
+    ${related ? `<div class="followups"><span>Related</span>${related}</div>` : ''}`;
+}
+
 function renderWorkspace() {
+  const live = state.live || state.loading;
   const node = graph.nodes[state.selected];
+  const answerBlock = live
+    ? renderLiveAnswer()
+    : `<article class="answer-card"><div class="answer-head"><span class="answer-mark">W</span><div><b>WikiGov verified answer</b><small>Demonstration response · source connection required</small></div><span class="answer-badge">${icon('info')} Prototype</span></div>
+          <p class="answer-lead">${esc(node.summary)}</p>
+          <div class="answer-detail"><h3>What this knowledge map can show</h3><ul>${node.details.map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div>
+          <div class="citation-strip"><span>${icon('file')} ${esc(node.kicker)}</span><button data-select-source>View source model ${icon('arrow')}</button></div>
+          <div class="answer-feedback"><span>Is this helpful?</span><button>Helpful</button><button>Needs improvement</button><button class="report">Report issue</button></div>
+        </article>
+        <div class="followups"><span>Explore next</span><button data-node="official-notice">Show official notices</button><button data-node="policy-history">Show policy history</button><button data-node="department">Which department owns this?</button></div>`;
+  const mapRail = state.live
+    ? `<section class="knowledge-map" aria-label="3D knowledge map"><div class="map-heading"><div><span class="map-kicker">KNOWLEDGE MAP</span><strong>Nearest and related nodes</strong></div></div><div id="graph3d" class="graph3d-canvas"></div><p class="map-hint">Drag to rotate · scroll to zoom</p></section>`
+    : `${renderMap()}${renderSources(node)}`;
   return `<main class="workspace">
     <aside class="conversation-rail"><div class="rail-top"><span class="panel-label">CONVERSATION</span><button class="new-chat" data-action="home">+ New search</button></div><button class="conversation active"><span class="conversation-icon">${icon('search')}</span><span>School examination information<small>Current exploration</small></span></button><div class="rail-group"><span>RECENTLY EXPLORED</span><button class="conversation"><span>Women welfare schemes</span></button><button class="conversation"><span>Property registration process</span></button><button class="conversation"><span>Farmer support programmes</span></button></div><div class="rail-bottom"><span class="lock-icon">⌁</span><p>No account required.<br /><small>Private conversations stay in this browser.</small></p></div></aside>
     <section class="chat-stage">
       <div class="workspace-mobile-title"><button data-action="home">←</button><span>WikiGov workspace</span><button data-toggle-map>${icon('map')}</button></div>
       <div class="chat-scroll">
         <div class="user-message">${esc(state.messages[0].text)}</div>
-        <article class="answer-card"><div class="answer-head"><span class="answer-mark">W</span><div><b>WikiGov verified answer</b><small>Demonstration response · source connection required</small></div><span class="answer-badge">${icon('info')} Prototype</span></div>
-          <p class="answer-lead">${esc(node.summary)}</p>
-          <div class="answer-detail"><h3>What this knowledge map can show</h3><ul>${node.details.map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div>
-          <div class="citation-strip"><span>${icon('file')} ${esc(node.kicker)}</span><button data-select-source>View source model ${icon('arrow')}</button></div>
-          <div class="answer-feedback"><span>Is this helpful?</span><button>Helpful</button><button>Needs improvement</button><button class="report">Report issue</button></div>
-        </article>
-        <div class="followups"><span>Explore next</span><button data-node="official-notice">Show official notices</button><button data-node="policy-history">Show policy history</button><button data-node="department">Which department owns this?</button></div>
+        ${answerBlock}
       </div>
       <form class="composer" id="chat-form"><textarea id="chat-query" rows="1" placeholder="Ask a follow-up or a new question..." aria-label="Ask a follow-up"></textarea><button type="submit" aria-label="Send question">${icon('send')}</button><small>WikiGov will answer only from approved source material.</small></form>
     </section>
-    <aside class="map-rail ${state.mapOpen ? '' : 'closed'}">${renderMap()}${renderSources(node)}</aside>
+    <aside class="map-rail ${state.mapOpen ? '' : 'closed'}">${mapRail}</aside>
   </main>`;
+}
+
+// Renders the live subgraph into a WebGL 3D force graph (loaded via CDN in
+// index.html). Silently no-ops if the library or container is unavailable.
+function initGraph3D() {
+  if (!state.live || typeof window.ForceGraph3D !== 'function') return;
+  const el = document.getElementById('graph3d');
+  if (!el) return;
+  const nodes = (state.live.graph?.nodes || []).map((n) => ({ id: n.id, name: n.title || n.id, type: n.type }));
+  const links = (state.live.graph?.edges || []).map((e) => ({ source: e.from, target: e.to, label: e.relationship }));
+  if (!nodes.length) { el.innerHTML = '<p class="map-hint" style="padding:1rem">No connected nodes to display.</p>'; return; }
+  const colors = { scheme: '#4f9dff', department: '#38c793', dataset: '#f2a03d', event: '#c76df0' };
+  window.ForceGraph3D()(el)
+    .backgroundColor('rgba(0,0,0,0)')
+    .graphData({ nodes, links })
+    .nodeLabel('name')
+    .nodeColor((n) => colors[n.type] || '#8aa0b4')
+    .linkLabel('label')
+    .linkOpacity(0.5)
+    .width(el.clientWidth)
+    .height(el.clientHeight || 340);
 }
 
 function render() {
   document.getElementById('app').innerHTML = `${renderHeader()}${state.screen === 'home' ? renderHome() : renderWorkspace()}`;
   bindEvents();
+  initGraph3D();
 }
 
 const nodeAliases = {
@@ -251,6 +334,7 @@ function resolveVectorlessRAG(query) {
 }
 
 function openWorkspace(query = '') {
+  state.live = null;
   if (query) {
     state.messages[0].text = query;
     state.selected = resolveVectorlessRAG(query);
@@ -264,11 +348,11 @@ function bindEvents() {
   document.querySelectorAll('[data-action="home"]').forEach((el) => el.addEventListener('click', () => { state.screen = 'home'; render(); }));
   document.querySelectorAll('[data-action="workspace"]').forEach((el) => el.addEventListener('click', () => openWorkspace()));
   document.querySelectorAll('[data-lang]').forEach((el) => el.addEventListener('click', () => { state.lang = el.dataset.lang; render(); }));
-  document.querySelectorAll('[data-query]').forEach((el) => el.addEventListener('click', () => openWorkspace(`Tell me about ${el.dataset.query}.`)));
+  document.querySelectorAll('[data-query]').forEach((el) => el.addEventListener('click', () => runQuery(el.dataset.query)));
   const searchForm = $('#search-form');
-  if (searchForm) searchForm.addEventListener('submit', (event) => { event.preventDefault(); const query = $('#hero-query').value.trim(); openWorkspace(query || 'Help me understand Tamil Nadu school examination information.'); });
+  if (searchForm) searchForm.addEventListener('submit', (event) => { event.preventDefault(); const query = $('#hero-query').value.trim(); runQuery(query || 'Help me understand Tamil Nadu school examination information.'); });
   const chatForm = $('#chat-form');
-  if (chatForm) chatForm.addEventListener('submit', (event) => { event.preventDefault(); const query = $('#chat-query').value.trim(); if (query) { state.messages[0].text = query; state.selected = resolveVectorlessRAG(query); render(); } });
+  if (chatForm) chatForm.addEventListener('submit', (event) => { event.preventDefault(); const query = $('#chat-query').value.trim(); if (query) runQuery(query); });
   document.querySelectorAll('[data-node]').forEach((el) => el.addEventListener('click', () => { state.selected = el.dataset.node; render(); }));
   document.querySelectorAll('.graph-node').forEach((el) => { el.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); state.selected = el.dataset.node; render(); } }); });
   const mapToggle = $('[data-toggle-map]'); if (mapToggle) mapToggle.addEventListener('click', () => { state.mapOpen = !state.mapOpen; render(); });

@@ -1,0 +1,24 @@
+{
+  "index_name": "tn-social-welfare-schemes-2026",
+  "title": "Tamil Nadu Social Welfare Schemes - Beneficiary Summary 2026",
+  "desc": "District-wise summary of beneficiaries and disbursed amounts under Tamil Nadu social welfare schemes for the financial year 2025-2026, published by the Social Welfare and Women Empowerment Department.",
+  "org": ["Government of Tamil Nadu", "Social Welfare and Women Empowerment Department"],
+  "sector": ["Social Welfare", "Women and Child Development"],
+  "source": "data.gov.in",
+  "updated_date": "2026-06-30",
+  "field": [
+    { "id": "district", "name": "District", "type": "keyword" },
+    { "id": "scheme", "name": "Scheme", "type": "keyword" },
+    { "id": "beneficiaries", "name": "Beneficiaries", "type": "double" },
+    { "id": "amount_disbursed_inr", "name": "Amount Disbursed (INR)", "type": "double" }
+  ],
+  "records": [
+    { "district": "Chennai", "scheme": "Kalaignar Magalir Urimai Thittam", "beneficiaries": 412350, "amount_disbursed_inr": 412350000 },
+    { "district": "Coimbatore", "scheme": "Kalaignar Magalir Urimai Thittam", "beneficiaries": 298110, "amount_disbursed_inr": 298110000 },
+    { "district": "Madurai", "scheme": "Kalaignar Magalir Urimai Thittam", "beneficiaries": 256740, "amount_disbursed_inr": 256740000 }
+  ],
+  "total": 3,
+  "count": 3,
+  "limit": 50,
+  "offset": 0
+}

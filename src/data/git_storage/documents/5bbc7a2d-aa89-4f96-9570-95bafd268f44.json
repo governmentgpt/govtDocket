@@ -1,0 +1,44 @@
+{
+  "id": "5bbc7a2d-aa89-4f96-9570-95bafd268f44",
+  "url": "https://data.gov.in/resource/fixture",
+  "docType": "Open Government Dataset",
+  "issuingAuthority": "Government of Tamil Nadu",
+  "version": {
+    "id": "6b54be7c-9724-43ef-9002-39e9a2a57030",
+    "documentId": "5bbc7a2d-aa89-4f96-9570-95bafd268f44",
+    "versionNumber": 1,
+    "title": "Tamil Nadu Social Welfare Schemes - Beneficiary Summary 2026",
+    "effectiveDate": "2026-06-30",
+    "hash": "ad9674c3ed713771aa0e9b6a1674acdc45b2e939b6076ed2d3323b37e74fe3ec"
+  },
+  "passages": [
+    {
+      "id": "b465b459-1278-464e-94ee-e3b03a487892",
+      "versionId": "6b54be7c-9724-43ef-9002-39e9a2a57030",
+      "pageNumber": 1,
+      "sectionLabel": "Dataset Overview",
+      "textContent": "Tamil Nadu Social Welfare Schemes - Beneficiary Summary 2026. District-wise summary of beneficiaries and disbursed amounts under Tamil Nadu social welfare schemes for the financial year 2025-2026, published by the Social Welfare and Women Empowerment Department."
+    },
+    {
+      "id": "55d42b5a-3e0e-4f8d-b1ba-7cadf48c700f",
+      "versionId": "6b54be7c-9724-43ef-9002-39e9a2a57030",
+      "pageNumber": 2,
+      "sectionLabel": "Record 1",
+      "textContent": "district: Chennai; scheme: Kalaignar Magalir Urimai Thittam; beneficiaries: 412350; amount_disbursed_inr: 412350000"
+    },
+    {
+      "id": "9287c877-afde-4716-843c-f7da96eb7de5",
+      "versionId": "6b54be7c-9724-43ef-9002-39e9a2a57030",
+      "pageNumber": 3,
+      "sectionLabel": "Record 2",
+      "textContent": "district: Coimbatore; scheme: Kalaignar Magalir Urimai Thittam; beneficiaries: 298110; amount_disbursed_inr: 298110000"
+    },
+    {
+      "id": "8da0e533-747f-4ce7-9432-3fa8871bceb0",
+      "versionId": "6b54be7c-9724-43ef-9002-39e9a2a57030",
+      "pageNumber": 4,
+      "sectionLabel": "Record 3",
+      "textContent": "district: Madurai; scheme: Kalaignar Magalir Urimai Thittam; beneficiaries: 256740; amount_disbursed_inr: 256740000"
+    }
+  ]
+}

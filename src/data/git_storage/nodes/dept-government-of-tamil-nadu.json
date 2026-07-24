@@ -1,0 +1,24 @@
+{
+  "id": "dept-government-of-tamil-nadu",
+  "type": "department",
+  "version": {
+    "titleEn": "Government of Tamil Nadu",
+    "titleTa": "Government of Tamil Nadu",
+    "summaryEn": "Publishing authority for \"Tamil Nadu Social Welfare Schemes - Beneficiary Summary 2026\" on data.gov.in.",
+    "summaryTa": "data.gov.in-ல் \"Tamil Nadu Social Welfare Schemes - Beneficiary Summary 2026\" வெளியிட்ட அமைப்பு.",
+    "detailsEn": [
+      "Source authority recorded from the data.gov.in catalog metadata."
+    ],
+    "detailsTa": [
+      "data.gov.in பட்டியல் தரவிலிருந்து பதிவு செய்யப்பட்ட ஆதார அமைப்பு."
+    ],
+    "status": "pending review",
+    "validFrom": "2026-07-24T19:22:41.413Z"
+  },
+  "aliases": [
+    {
+      "alias": "Government of Tamil Nadu",
+      "lang": "EN"
+    }
+  ]
+}

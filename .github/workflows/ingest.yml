@@ -1,0 +1,66 @@
+name: Knowledge ingestion
+
+# Continuous, governed ingestion:
+#   fetch approved sources → update git_storage (status: pending review)
+#   → compile SQL → open a Pull Request (the review queue).
+# Merging the PR is the steward's approval; the compiled src/db/sync_data.sql
+# is then applied to Supabase manually, and pending-review nodes are approved.
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'          # every Monday 02:00 UTC
+  workflow_dispatch:
+    inputs:
+      resource:
+        description: 'data.gov.in resource id to ingest'
+        required: true
+        type: string
+      limit:
+        description: 'Max records to pull'
+        required: false
+        default: '50'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Ingest from data.gov.in
+        env:
+          DATA_GOV_API_KEY: ${{ secrets.DATA_GOV_API_KEY }}
+        run: |
+          set -e
+          # Scheduled runs read a comma-separated list from the INGEST_RESOURCES
+          # repo variable; manual runs use the dispatch input.
+          RESOURCES="${{ github.event.inputs.resource || vars.INGEST_RESOURCES }}"
+          if [ -z "$RESOURCES" ]; then echo "No resources configured; nothing to do."; exit 0; fi
+          IFS=',' read -ra IDS <<< "$RESOURCES"
+          for id in "${IDS[@]}"; do
+            echo "Ingesting resource: $id"
+            node src/ingestion/ingest.js --source datagovin --resource "$(echo "$id" | xargs)" --limit "${{ github.event.inputs.limit || '50' }}"
+          done
+          node src/ingestion/sync.js
+
+      - name: Open review PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then echo "No knowledge changes."; exit 0; fi
+          BRANCH="ingest/$(date +%Y%m%d-%H%M%S)"
+          git config user.name  "wikigov-ingest-bot"
+          git config user.email "actions@github.com"
+          git checkout -b "$BRANCH"
+          git add src/data/git_storage src/db/sync_data.sql
+          git commit -m "chore(ingest): proposed knowledge updates for steward review"
+          git push origin "$BRANCH"
+          gh pr create --title "Ingestion review: $(date +%Y-%m-%d)" \
+            --body "Automated ingestion. Review provenance, then merge to approve. Apply \`src/db/sync_data.sql\` to Supabase and set approved nodes to status='approved'." \
+            --base main --head "$BRANCH"

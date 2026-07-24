@@ -13,6 +13,11 @@
   </head>
   <body>
     <div id="app"></div>
+    <!-- Set to the deployed Cloudflare Worker origin to switch from demo data to
+         live verified answers. Leave empty to run on built-in demonstration data. -->
+    <script>window.WIKIGOV_API_URL = '';</script>
+    <!-- 3D knowledge-map renderer (WebGL). Loaded before the app module. -->
+    <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1"></script>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

@@ -1,0 +1,34 @@
+{
+  "id": "tamil-nadu-social-welfare-schemes-beneficiary-summary-2026",
+  "type": "dataset",
+  "version": {
+    "titleEn": "Tamil Nadu Social Welfare Schemes - Beneficiary Summary 2026",
+    "titleTa": "Tamil Nadu Social Welfare Schemes - Beneficiary Summary 2026",
+    "summaryEn": "District-wise summary of beneficiaries and disbursed amounts under Tamil Nadu social welfare schemes for the financial year 2025-2026, published by the Social Welfare and Women Empowerment Department.",
+    "summaryTa": "District-wise summary of beneficiaries and disbursed amounts under Tamil Nadu social welfare schemes for the financial year 2025-2026, published by the Social Welfare and Women Empowerment Department.",
+    "detailsEn": [
+      "Social Welfare",
+      "Women and Child Development"
+    ],
+    "detailsTa": [
+      "Social Welfare",
+      "Women and Child Development"
+    ],
+    "status": "pending review",
+    "validFrom": "2026-07-24T19:22:41.413Z"
+  },
+  "aliases": [
+    {
+      "alias": "Tamil Nadu Social Welfare Schemes - Beneficiary Summary 2026",
+      "lang": "EN"
+    },
+    {
+      "alias": "Social Welfare",
+      "lang": "EN"
+    },
+    {
+      "alias": "Women and Child Development",
+      "lang": "EN"
+    }
+  ]
+}
