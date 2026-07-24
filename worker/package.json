@@ -8,7 +8,7 @@
     "deploy": "wrangler deploy",
     "secret:supabase-url": "wrangler secret put SUPABASE_URL",
     "secret:supabase-key": "wrangler secret put SUPABASE_ANON_KEY",
-    "secret:nvidia-key": "wrangler secret put NVIDIA_API_KEY"
+    "secret:llm-key": "wrangler secret put LLM_API_KEY"
   },
   "dependencies": {
     "hono": "^4.4.0"

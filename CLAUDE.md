@@ -15,7 +15,7 @@ The system is deliberately split so each layer can be deployed and swapped witho
 3. **Ingestion / knowledge factory** — `src/ingestion/`. Node CLI prototypes that scrape sources, propose node/edge structure, write git-backed JSON, and compile SQL.
 4. **Data store** — Supabase (PostgreSQL). Schema and RPCs in `src/db/`. The user applies migrations manually (see Testing).
 
-Data flow at query time: **Render UI → Cloudflare Worker → Supabase RPCs → NVIDIA NIM synthesis → grounded answer + citations + graph**.
+Data flow at query time: **Render UI → Cloudflare Worker → Supabase RPCs → LLM synthesis → grounded answer + citations + graph**.
 
 ## Vectorless RAG pipeline (the core design)
 
@@ -24,13 +24,13 @@ Retrieval is deterministic-first and must support running without any vector/emb
 1. **Alias match** — `match_node_aliases` RPC: `pg_trgm` trigram similarity over `node_aliases` to find the root concept node.
 2. **Graph traversal** — `get_graph_rag_context` RPC: recursive 2-hop CTE outward from the root node.
 3. **Evidence assembly** — same RPC returns passages + citations (page, section, document, authority) joined via `edge_evidence`.
-4. **Grounded synthesis** — NVIDIA NIM (OpenAI-compatible `integrate.api.nvidia.com/v1`, model via `NVIDIA_MODEL`, temperature 0.1) with a strict anti-hallucination system prompt.
+4. **Grounded synthesis** — any OpenAI-compatible LLM endpoint (default GLM `z-ai/glm-5.2`), configured by `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY`, temperature 0.1, with a strict anti-hallucination system prompt.
 
 Non-negotiable behaviors when editing this pipeline:
 - Return exactly `"No verified information was found."` rather than inventing anything unsupported.
 - Every factual claim in an answer carries a citation token `[Source Name, Page N]`.
 - Both RPCs live in [`src/db/schema.sql`](src/db/schema.sql); the Worker calls them over Supabase's REST `/rpc/` endpoint using native `fetch` (no `@supabase/supabase-js` — keeps the bundle tiny). Changing an RPC signature means updating both the SQL and the Worker call.
-- The Worker degrades gracefully: no Supabase secrets → `simulateResponse()` mock; no `NVIDIA_API_KEY` → raw passage text. Preserve these fallbacks.
+- The Worker degrades gracefully: no Supabase secrets → `simulateResponse()` mock; no `LLM_API_KEY` → raw passage text. Preserve these fallbacks.
 
 ## Data model (Supabase)
 
@@ -53,7 +53,7 @@ Cloudflare Worker (from `worker/`):
 npm run dev      # wrangler dev — local Worker
 npm run deploy   # wrangler deploy
 ```
-Worker secrets are Cloudflare encrypted bindings set via `wrangler secret put` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `NVIDIA_API_KEY`) — accessed only through `env.*`, never in `wrangler.toml` or source. Non-secret config goes in the `[vars]` block of [`worker/wrangler.toml`](worker/wrangler.toml).
+Worker secrets are Cloudflare encrypted bindings set via `wrangler secret put` (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `LLM_API_KEY`) — accessed only through `env.*`, never in `wrangler.toml` or source. Non-secret config goes in the `[vars]` block of [`worker/wrangler.toml`](worker/wrangler.toml).
 
 Ingestion (from repo root, Node):
 ```sh

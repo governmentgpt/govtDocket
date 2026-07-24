@@ -18,9 +18,10 @@ export async function handleQuery(c) {
   // Pull secrets from the Worker env binding
   const SUPABASE_URL      = c.env.SUPABASE_URL;
   const SUPABASE_ANON_KEY = c.env.SUPABASE_ANON_KEY;
-  const NVIDIA_API_KEY    = c.env.NVIDIA_API_KEY;
-  // NVIDIA NIM model id — override via env; defaults to Llama 3.1 70B Instruct.
-  const NVIDIA_MODEL      = c.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct';
+  // LLM synthesis — any OpenAI-compatible chat endpoint (GLM / NVIDIA / etc.).
+  const LLM_API_KEY  = c.env.LLM_API_KEY;
+  const LLM_MODEL    = c.env.LLM_MODEL    || 'z-ai/glm-5.2';
+  const LLM_BASE_URL = c.env.LLM_BASE_URL || 'https://integrate.api.nvidia.com/v1';
 
   const queryText =
     c.req.query('q') ||
@@ -107,7 +108,7 @@ export async function handleQuery(c) {
   }
 
   // ── STEP 4: Grounded synthesis ───────────────────────────────────────────────
-  const answer = await generateGroundedAnswer(queryText, passages, NVIDIA_API_KEY, NVIDIA_MODEL);
+  const answer = await generateGroundedAnswer(queryText, passages, LLM_API_KEY, LLM_MODEL, LLM_BASE_URL);
 
   return c.json({
     answer,
@@ -147,13 +148,13 @@ async function supabaseRpc(url, anonKey, fnName, body) {
   return { data, error: null };
 }
 
-// ── NVIDIA NIM grounded synthesis ─────────────────────────────────────────────
-// Uses NVIDIA's OpenAI-compatible chat-completions endpoint. The API key is a
-// Cloudflare encrypted binding (env.NVIDIA_API_KEY) — never in source.
-async function generateGroundedAnswer(query, passages, apiKey, model) {
+// ── LLM grounded synthesis ────────────────────────────────────────────────────
+// Calls any OpenAI-compatible chat-completions endpoint (GLM, NVIDIA NIM, etc.).
+// The key is a Cloudflare encrypted binding (env.LLM_API_KEY) — never in source.
+async function generateGroundedAnswer(query, passages, apiKey, model, baseUrl) {
   // If the key is not bound yet, return the raw passages as plain text
   if (!apiKey) {
-    console.warn('[RAG] NVIDIA_API_KEY not bound — returning raw passage text.');
+    console.warn('[RAG] LLM_API_KEY not bound — returning raw passage text.');
     return passages
       .map((p) => `[${p.docTitle}, Page ${p.page}]: ${p.text}`)
       .join('\n\n');
@@ -180,7 +181,7 @@ async function generateGroundedAnswer(query, passages, apiKey, model) {
     `4. Write in simple language suitable for a citizen unfamiliar with bureaucratic terms.\n\n` +
     `Verified Passages:\n${passagesContext}`;
 
-  const res = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method:  'POST',
     headers: {
       'Content-Type':  'application/json',
@@ -199,8 +200,8 @@ async function generateGroundedAnswer(query, passages, apiKey, model) {
 
   if (!res.ok) {
     const err = await res.text();
-    console.error('[RAG] NVIDIA API error:', err);
-    throw new Error(`NVIDIA responded ${res.status}`);
+    console.error('[RAG] LLM API error:', err);
+    throw new Error(`LLM endpoint responded ${res.status}`);
   }
 
   const result = await res.json();

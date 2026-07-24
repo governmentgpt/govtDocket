@@ -18,13 +18,14 @@ compatibility_flags = ["nodejs_compat"]
 # ──────────────────────────────────────────────────────────
 # Required secrets:
 #   SUPABASE_URL        – your project's REST endpoint
-#   SUPABASE_ANON_KEY   – anon/public key (safe for Workers)
-#   NVIDIA_API_KEY      – NVIDIA NIM (build.nvidia.com) key
+#   SUPABASE_ANON_KEY   – anon/public key (safe for Workers; RLS-protected)
+#   LLM_API_KEY         – OpenAI-compatible LLM key (GLM / NVIDIA / etc.)
 
 [vars]
 # Non-secret runtime config (safe to commit)
 APP_ENV = "production"
 RAG_MAX_HOPS = "2"
 RAG_ALIAS_LIMIT = "5"
-# NVIDIA NIM model id — override the code default here if desired.
-NVIDIA_MODEL = "meta/llama-3.1-70b-instruct"
+# LLM synthesis — any OpenAI-compatible endpoint. Override in the dashboard if needed.
+LLM_MODEL = "z-ai/glm-5.2"
+LLM_BASE_URL = "https://integrate.api.nvidia.com/v1"

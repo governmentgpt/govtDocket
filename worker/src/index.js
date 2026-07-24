@@ -2,9 +2,9 @@
  * WikiGov RAG API — Cloudflare Worker entry point
  *
  * Architecture:
- *   Render (static frontend) → Cloudflare Worker (this file) → Supabase (graph DB) → NVIDIA NIM (synthesis)
+ *   Render (static frontend) → Cloudflare Worker (this file) → Supabase (graph DB) → LLM (synthesis)
  *
- * All secrets (SUPABASE_URL, SUPABASE_ANON_KEY, NVIDIA_API_KEY) are bound as
+ * All secrets (SUPABASE_URL, SUPABASE_ANON_KEY, LLM_API_KEY) are bound as
  * Cloudflare encrypted secrets via `wrangler secret put`. They are accessed
  * through the `env` parameter — they are NEVER in source code or .env files.
  *
