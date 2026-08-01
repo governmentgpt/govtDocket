@@ -16,6 +16,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { handleQuery } from './routes/query.js';
+import { handleGraph, handleNode } from './routes/graph.js';
 
 const app = new Hono();
 
@@ -39,6 +40,10 @@ app.get('/api/health', (c) => {
 // ── RAG Query ────────────────────────────────────────────────────────────────
 app.get('/api/query', handleQuery);
 app.post('/api/query', handleQuery);
+
+// ── Graph explorer (3D Explore tab) ──────────────────────────────────────────
+app.get('/api/graph', handleGraph);
+app.get('/api/node', handleNode);
 
 // ── 404 fallback ─────────────────────────────────────────────────────────────
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

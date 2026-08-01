@@ -169,6 +169,7 @@ function renderHeader() {
     <button class="brand" data-action="home" aria-label="WikiGov home">
       <span class="brand-mark">W</span><span><b>WikiGov</b><small>Government Knowledge Platform</small></span>
     </button>
+    <nav class="top-nav"><button class="${state.screen === 'home' ? 'active' : ''}" data-action="home">Home</button><button class="${state.screen === 'explore' ? 'active' : ''}" data-action="explore">Explore</button></nav>
     <div class="header-actions">
       <div class="language-toggle" aria-label="Language selection"><button class="${state.lang === 'EN' ? 'active' : ''}" data-lang="EN">EN</button><button class="${state.lang === 'TA' ? 'active' : ''}" data-lang="TA">தமிழ்</button></div>
       <span class="public-pill"><i></i> Public access</span>
@@ -298,10 +299,17 @@ function initGraph3D() {
     .height(el.clientHeight || 340);
 }
 
+function screenBody() {
+  if (state.screen === 'home') return renderHome();
+  if (state.screen === 'explore') return renderExplore();
+  return renderWorkspace();
+}
+
 function render() {
-  document.getElementById('app').innerHTML = `${renderHeader()}${state.screen === 'home' ? renderHome() : renderWorkspace()}`;
+  document.getElementById('app').innerHTML = `${renderHeader()}${screenBody()}`;
   bindEvents();
   initGraph3D();
+  initExplorer();
 }
 
 const nodeAliases = {
@@ -344,9 +352,173 @@ function openWorkspace(query = '') {
   state.query = ''; state.screen = 'workspace'; render();
 }
 
+// ── Explore tab: full-graph 3D navigation (Obsidian / Google-Earth style) ─────
+const TYPE_COLORS = {
+  scheme: '#4f9dff', department: '#38c793', order: '#f2a03d', event: '#e06d9c',
+  act: '#b98cff', person: '#f2c94c', constituency: '#9cc88b', sector: '#63c2c2',
+  eligibility: '#e0a458', process: '#7fa8d0', budget_line: '#d98d5b', dataset: '#7bd0a0', topic: '#8aa0b4',
+};
+let _fg = null;          // ForceGraph3D instance
+let _graphNodes = [];    // current node list (mutated with x/y/z by the sim)
+
+function openExplore() { state.live = null; state.screen = 'explore'; render(); }
+
+function renderExplore() {
+  return `<main class="explore-page">
+    <div class="explore-toolbar">
+      <div class="explore-title"><span class="map-kicker">KNOWLEDGE UNIVERSE</span><strong>Explore all verified topics</strong></div>
+      <input id="explore-search" placeholder="Find a topic…" aria-label="Find a topic" />
+      <label class="explore-toggle"><input type="checkbox" id="explore-pending" /> Include unreviewed</label>
+      <span id="explore-count" class="explore-count"></span>
+    </div>
+    <div id="graph-explorer" class="graph-explorer"></div>
+    <div id="explore-legend" class="explore-legend"></div>
+    <aside id="explore-drawer" class="explore-drawer closed"></aside>
+  </main>`;
+}
+
+async function loadGraphData(status) {
+  if (!API_BASE_URL) return demoGraphData();
+  const res = await fetch(`${API_BASE_URL}/api/graph?status=${status}`);
+  if (!res.ok) throw new Error(`graph ${res.status}`);
+  return res.json();
+}
+
+function demoGraphData() {
+  const nodes = Object.entries(graph.nodes).map(([id, n]) => ({
+    id, title: n.title, type: n.type, status: 'approved', summary: n.summary,
+    degree: graph.edges.filter((e) => e[0] === id || e[1] === id).length,
+  }));
+  const edges = graph.edges.map(([from, to, rel]) => ({ from, to, relationship: rel }));
+  return { nodes, edges };
+}
+
+function mapGraph(data) {
+  _graphNodes = (data.nodes || []).map((n) => ({ id: n.id, name: n.title || n.id, type: n.type, status: n.status, degree: n.degree || 0, summary: n.summary }));
+  const links = (data.edges || []).map((e) => ({ source: e.from, target: e.to, relationship: e.relationship }));
+  return { nodes: _graphNodes, links };
+}
+
+async function initExplorer() {
+  if (state.screen !== 'explore' || typeof window.ForceGraph3D !== 'function') return;
+  const el = document.getElementById('graph-explorer');
+  if (!el || el.__built) return;
+  el.__built = true;
+  try {
+    const pending = document.getElementById('explore-pending')?.checked;
+    const data = await loadGraphData(pending ? 'all' : 'approved');
+    buildExplorer(el, data);
+    wireExploreToolbar();
+    updateExploreMeta(data);
+  } catch (err) {
+    el.innerHTML = `<p class="explore-empty">Could not load graph: ${esc(err.message)}</p>`;
+  }
+}
+
+function buildExplorer(el, data) {
+  _fg = window.ForceGraph3D()(el)
+    .backgroundColor('#08131f')
+    .graphData(mapGraph(data))
+    .nodeVal((n) => 2 + (n.degree || 0))
+    .nodeColor((n) => (n.status && n.status !== 'approved' ? '#5b6b78' : (TYPE_COLORS[n.type] || '#8aa0b4')))
+    .nodeThreeObjectExtend(true)
+    .nodeThreeObject((n) => {
+      if (typeof window.SpriteText !== 'function') return null;
+      const s = new window.SpriteText(n.name);
+      s.color = n.status && n.status !== 'approved' ? '#9fb0bd' : '#e9f2f8';
+      s.textHeight = Math.min(9, 3.5 + (n.degree || 0));
+      s.material.depthWrite = false;
+      return s;
+    })
+    .linkColor(() => 'rgba(150,180,205,0.22)')
+    .linkLabel('relationship')
+    .linkDirectionalArrowLength(2.4)
+    .linkDirectionalArrowRelPos(1)
+    .onNodeClick((node) => { flyTo(node); openNodeDrawer(node); })
+    .width(el.clientWidth)
+    .height(el.clientHeight);
+}
+
+function flyTo(node) {
+  if (!_fg || node.x === undefined) return;
+  const dist = 70;
+  const ratio = 1 + dist / Math.hypot(node.x, node.y, node.z || 0.001);
+  _fg.cameraPosition({ x: node.x * ratio, y: node.y * ratio, z: (node.z || 0) * ratio }, node, 1400);
+}
+
+function updateExploreMeta(data) {
+  const count = document.getElementById('explore-count');
+  if (count) count.textContent = `${(data.nodes || []).length} topics · ${(data.edges || []).length} links`;
+  const legend = document.getElementById('explore-legend');
+  if (legend) {
+    const types = [...new Set((data.nodes || []).map((n) => n.type))];
+    legend.innerHTML = types.map((t) => `<span><i style="background:${TYPE_COLORS[t] || '#8aa0b4'}"></i>${esc(t || 'topic')}</span>`).join('');
+  }
+}
+
+function wireExploreToolbar() {
+  const search = document.getElementById('explore-search');
+  if (search) search.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const q = search.value.trim().toLowerCase();
+    const hit = _graphNodes.find((n) => (n.name || '').toLowerCase().includes(q));
+    if (hit) { flyTo(hit); openNodeDrawer(hit); }
+  });
+  const pending = document.getElementById('explore-pending');
+  if (pending) pending.addEventListener('change', async () => {
+    try {
+      const data = await loadGraphData(pending.checked ? 'all' : 'approved');
+      if (_fg) _fg.graphData(mapGraph(data));
+      updateExploreMeta(data);
+    } catch (err) { /* keep current view */ }
+  });
+}
+
+async function openNodeDrawer(node) {
+  const drawer = document.getElementById('explore-drawer');
+  if (!drawer) return;
+  drawer.classList.remove('closed');
+  const badge = node.status && node.status !== 'approved' ? ` · ${esc(node.status)}` : '';
+  drawer.innerHTML = `<button class="drawer-close" id="drawer-close">✕</button>
+    <span class="drawer-type">${esc(node.type || 'topic')}${badge}</span>
+    <h3>${esc(node.name || node.id)}</h3>
+    <div id="drawer-body"><p class="muted">Loading…</p></div>`;
+  document.getElementById('drawer-close').onclick = () => drawer.classList.add('closed');
+  const body = document.getElementById('drawer-body');
+
+  if (!API_BASE_URL) { body.innerHTML = `<p>${esc(node.summary || 'Demonstration node.')}</p>`; return; }
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/node?id=${encodeURIComponent(node.id)}`);
+    const info = await res.json();
+    body.innerHTML = renderDrawerBody(info);
+    body.querySelectorAll('[data-node-explore]').forEach((b) => { b.onclick = () => {
+      const nn = _graphNodes.find((x) => x.id === b.dataset.nodeExplore);
+      if (nn) { flyTo(nn); openNodeDrawer(nn); }
+    }; });
+    body.querySelectorAll('[data-query]').forEach((b) => { b.onclick = () => runQuery(b.dataset.query); });
+  } catch (err) {
+    body.innerHTML = `<p class="muted">Details unavailable (${esc(err.message)}).</p>`;
+  }
+}
+
+function renderDrawerBody(info) {
+  const n = info.node || {};
+  const details = (n.details || []).map((d) => `<li>${esc(d)}</li>`).join('');
+  const neighbors = (info.neighbors || []).map((x) =>
+    `<button class="drawer-neighbor" data-node-explore="${esc(x.id)}"><b>${esc(x.title || x.id)}</b><small>${esc(x.relationship || 'linked')} · ${esc(x.type || '')}</small></button>`).join('');
+  const cites = (info.citations || []).map((c) =>
+    `<div class="drawer-source">${icon('file')} <span>${esc(c.document || 'Source')}${c.page ? `, p.${esc(c.page)}` : ''}</span></div>`).join('');
+  return `${n.summary ? `<p>${esc(n.summary)}</p>` : ''}
+    ${details ? `<ul class="drawer-details">${details}</ul>` : ''}
+    ${neighbors ? `<h4>Connected topics</h4><div class="drawer-neighbors">${neighbors}</div>` : ''}
+    ${cites ? `<h4>Source artefacts</h4>${cites}` : ''}
+    ${n.title ? `<button class="drawer-ask" data-query="${esc(n.title)}">Ask about this ${icon('arrow')}</button>` : ''}`;
+}
+
 function bindEvents() {
   document.querySelectorAll('[data-action="home"]').forEach((el) => el.addEventListener('click', () => { state.screen = 'home'; render(); }));
   document.querySelectorAll('[data-action="workspace"]').forEach((el) => el.addEventListener('click', () => openWorkspace()));
+  document.querySelectorAll('[data-action="explore"]').forEach((el) => el.addEventListener('click', openExplore));
   document.querySelectorAll('[data-lang]').forEach((el) => el.addEventListener('click', () => { state.lang = el.dataset.lang; render(); }));
   document.querySelectorAll('[data-query]').forEach((el) => el.addEventListener('click', () => runQuery(el.dataset.query)));
   const searchForm = $('#search-form');
