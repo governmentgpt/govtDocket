@@ -112,13 +112,25 @@ const API_BASE_URL = (typeof window !== 'undefined' && window.WIKIGOV_API_URL) |
 const state = {
   screen: 'home', lang: 'EN', query: '', selected: graph.root, mapOpen: true,
   turns: [],   // conversational history: [{ query, answer, citations, graph, loading }]
+  sessionGraph: { nodes: {}, edges: {} },   // cumulative map across the conversation
 };
 
 // ── Live retrieval API ─────────────────────────────────────────────────────────
-async function askApi(query) {
-  const res = await fetch(`${API_BASE_URL}/api/query?q=${encodeURIComponent(query)}`);
+async function askApi(query, history) {
+  const res = await fetch(`${API_BASE_URL}/api/query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, history }),   // history gives follow-ups context
+  });
   if (!res.ok) throw new Error(`API responded ${res.status}`);
   return res.json();   // { answer, citations:[], graph:{ nodes:[], edges:[] } }
+}
+
+// Accumulates each turn's graph into the session map so the view navigates/grows
+// across follow-ups instead of resetting each question.
+function mergeSession(g) {
+  (g.nodes || []).forEach((n) => { state.sessionGraph.nodes[n.id] = n; });
+  (g.edges || []).forEach((e) => { state.sessionGraph.edges[e.id || `${e.from}>${e.to}>${e.relationship}`] = e; });
 }
 
 // Builds a small subgraph from the built-in demo data (for the no-API mode).
@@ -146,14 +158,18 @@ async function runQuery(query) {
     turn.answer = node.summary;
     turn.citations = (node.sources || []).map(([name]) => ({ document: name }));
     turn.graph = demoSubgraph(nodeId);
+    mergeSession(turn.graph);
     turn.loading = false;
     return render();
   }
   try {
-    const data = await askApi(query);
+    const history = state.turns.slice(0, -1).slice(-3)
+      .flatMap((t) => [{ role: 'user', text: t.query }, { role: 'assistant', text: t.answer }]);
+    const data = await askApi(query, history);
     turn.answer = data.answer;
     turn.citations = data.citations || [];
     turn.graph = data.graph || { nodes: [], edges: [] };
+    mergeSession(turn.graph);
   } catch (err) {
     turn.answer = `The knowledge service is unavailable right now (${err.message}).`;
   } finally {
@@ -290,25 +306,33 @@ function renderWorkspace() {
 // index.html). Silently no-ops if the library or container is unavailable.
 function initGraph3D() {
   if (state.screen !== 'workspace' || typeof window.ForceGraph3D !== 'function') return;
-  const latest = state.turns[state.turns.length - 1];
   const el = document.getElementById('graph3d');
-  if (!el || el.__built || !latest) return;
+  if (!el || el.__built) return;
   el.__built = true;
-  const nodes = (latest.graph?.nodes || []).map((n) => ({ id: n.id, name: n.title || n.id, type: n.type }));
-  const links = (latest.graph?.edges || []).map((e) => ({ source: e.from, target: e.to, label: e.relationship }));
-  if (!nodes.length) { el.innerHTML = '<p class="map-hint" style="padding:1rem">No connected nodes to display.</p>'; return; }
+  // Cumulative session map: this turn's nodes are highlighted; earlier ones stay dimmed.
+  const latest = state.turns[state.turns.length - 1];
+  const recent = new Set((latest?.graph?.nodes || []).map((n) => n.id));
+  const nodes = Object.values(state.sessionGraph.nodes).map((n) => ({ id: n.id, name: n.title || n.id, type: n.type, recent: recent.has(n.id) }));
+  const ids = new Set(nodes.map((n) => n.id));
+  const links = Object.values(state.sessionGraph.edges)
+    .filter((e) => ids.has(e.from) && ids.has(e.to))
+    .map((e) => ({ source: e.from, target: e.to, label: e.relationship }));
+  if (!nodes.length) { el.innerHTML = '<p class="map-hint" style="padding:1rem">Ask a question to populate the map.</p>'; return; }
   const fg = window.ForceGraph3D()(el)
     .backgroundColor('rgba(0,0,0,0)')
     .graphData({ nodes, links })
-    .nodeColor((n) => TYPE_COLORS[n.type] || '#8aa0b4')
+    .nodeVal((n) => (n.recent ? 6 : 2))
+    .nodeColor((n) => (n.recent ? (TYPE_COLORS[n.type] || '#8aa0b4') : '#4b5a66'))
     .nodeThreeObjectExtend(true)
     .nodeThreeObject((n) => {
       if (typeof window.SpriteText !== 'function') return null;
       const s = new window.SpriteText(n.name);
-      s.color = '#eaf3f8'; s.textHeight = 4; s.material.depthWrite = false;
+      s.color = n.recent ? '#eaf3f8' : '#8aa0b4';
+      s.textHeight = n.recent ? 5 : 3;
+      s.material.depthWrite = false;
       return s;
     })
-    .linkColor(() => 'rgba(150,180,205,0.35)')
+    .linkColor(() => 'rgba(150,180,205,0.3)')
     .linkLabel('label')
     .linkDirectionalArrowLength(2.5).linkDirectionalArrowRelPos(1)
     .onNodeClick((n) => {
@@ -330,8 +354,12 @@ function render() {
   bindEvents();
   initGraph3D();
   initExplorer();
-  const scroll = document.getElementById('chat-scroll');
-  if (scroll) scroll.scrollTop = scroll.scrollHeight;
+  // Bring the newest question to the top of the chat so the answer reads below it.
+  requestAnimationFrame(() => {
+    const msgs = document.querySelectorAll('#chat-scroll .user-message');
+    const last = msgs[msgs.length - 1];
+    if (last) last.scrollIntoView({ block: 'start', behavior: 'auto' });
+  });
 }
 
 const nodeAliases = {
@@ -557,7 +585,7 @@ function renderDrawerBody(info) {
 
 function bindEvents() {
   document.querySelectorAll('[data-action="home"]').forEach((el) => el.addEventListener('click', () => { state.screen = 'home'; render(); }));
-  document.querySelectorAll('[data-action="new-chat"]').forEach((el) => el.addEventListener('click', () => { state.turns = []; state.screen = 'home'; render(); }));
+  document.querySelectorAll('[data-action="new-chat"]').forEach((el) => el.addEventListener('click', () => { state.turns = []; state.sessionGraph = { nodes: {}, edges: {} }; state.screen = 'home'; render(); }));
   document.querySelectorAll('[data-action="workspace"]').forEach((el) => el.addEventListener('click', () => openWorkspace()));
   document.querySelectorAll('[data-action="explore"]').forEach((el) => el.addEventListener('click', openExplore));
   document.querySelectorAll('[data-lang]').forEach((el) => el.addEventListener('click', () => { state.lang = el.dataset.lang; render(); }));
@@ -566,6 +594,15 @@ function bindEvents() {
   if (searchForm) searchForm.addEventListener('submit', (event) => { event.preventDefault(); const query = $('#hero-query').value.trim(); runQuery(query || 'Help me understand Tamil Nadu school examination information.'); });
   const chatForm = $('#chat-form');
   if (chatForm) chatForm.addEventListener('submit', (event) => { event.preventDefault(); const query = $('#chat-query').value.trim(); if (query) runQuery(query); });
+  const chatInput = $('#chat-query');
+  if (chatInput) chatInput.addEventListener('keydown', (event) => {
+    // Enter (or Ctrl/Cmd+Enter) sends; Shift+Enter inserts a newline.
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      const query = chatInput.value.trim();
+      if (query) runQuery(query);
+    }
+  });
   document.querySelectorAll('[data-node]').forEach((el) => el.addEventListener('click', () => { state.selected = el.dataset.node; render(); }));
   document.querySelectorAll('.graph-node').forEach((el) => { el.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); state.selected = el.dataset.node; render(); } }); });
   const mapToggle = $('[data-toggle-map]'); if (mapToggle) mapToggle.addEventListener('click', () => { state.mapOpen = !state.mapOpen; render(); });

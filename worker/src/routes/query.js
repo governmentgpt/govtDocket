@@ -23,9 +23,11 @@ export async function handleQuery(c) {
   const LLM_MODEL    = c.env.LLM_MODEL    || 'z-ai/glm-5.2';
   const LLM_BASE_URL = c.env.LLM_BASE_URL || 'https://integrate.api.nvidia.com/v1';
 
-  const queryText =
-    c.req.query('q') ||
-    (await c.req.json().catch(() => ({}))).query || '';
+  const body = await c.req.json().catch(() => ({}));
+  const queryText = c.req.query('q') || body.query || '';
+  // Recent conversation turns [{role,text}] so follow-ups ("what does the budget say")
+  // keep context in both retrieval and synthesis.
+  const history = Array.isArray(body.history) ? body.history.slice(-6) : [];
 
   if (!queryText.trim()) {
     return c.json({ error: 'Query parameter "q" is required.' }, 400);
@@ -47,8 +49,11 @@ export async function handleQuery(c) {
   // ── STEP 1: Content retrieval — full-text search over ALL approved passages ──
   // This is the primary path: it answers open-domain topic questions from the
   // whole corpus (What's New, Gazette, GOs, dept updates), not just one node.
+  // Expand the retrieval query with recent user turns so follow-ups keep context.
+  const recentUser = history.filter((m) => m.role === 'user').slice(-2).map((m) => m.text).join(' ');
+  const ftsQuery = `${recentUser} ${queryText}`.trim();
   const ftsRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'search_passages', {
-    query_text: queryText,
+    query_text: ftsQuery,
     match_count: 8,
   });
   if (ftsRes.error) {
@@ -100,7 +105,7 @@ export async function handleQuery(c) {
   const top = passages.slice(0, 10);
   let answer;
   try {
-    answer = await generateGroundedAnswer(queryText, top, LLM_API_KEY, LLM_MODEL, LLM_BASE_URL);
+    answer = await generateGroundedAnswer(queryText, top, history, LLM_API_KEY, LLM_MODEL, LLM_BASE_URL);
   } catch (err) {
     // Retrieval succeeded but the LLM failed — surface it distinctly instead of
     // masking it as "No verified information was found".
@@ -141,7 +146,7 @@ async function supabaseRpc(url, anonKey, fnName, body) {
 // ── LLM grounded synthesis ────────────────────────────────────────────────────
 // Calls any OpenAI-compatible chat-completions endpoint (GLM, NVIDIA NIM, etc.).
 // The key is a Cloudflare encrypted binding (env.LLM_API_KEY) — never in source.
-async function generateGroundedAnswer(query, passages, apiKey, model, baseUrl) {
+async function generateGroundedAnswer(query, passages, history, apiKey, model, baseUrl) {
   // If the key is not bound yet, return the raw passages as plain text
   if (!apiKey) {
     console.warn('[RAG] LLM_API_KEY not bound — returning raw passage text.');
@@ -181,6 +186,7 @@ async function generateGroundedAnswer(query, passages, apiKey, model, baseUrl) {
       model,
       messages: [
         { role: 'system', content: systemPrompt },
+        ...(history || []).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.text || '') })),
         { role: 'user',   content: query },
       ],
       temperature: 0.1,   // near-deterministic
