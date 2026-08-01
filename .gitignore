@@ -5,3 +5,9 @@ dist/
 
 # Wrangler local secrets file — NEVER commit this
 worker/.dev.vars
+
+# Python ingestion service
+__pycache__/
+*.pyc
+.venv/
+services/ingest/.artifacts/
