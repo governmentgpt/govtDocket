@@ -34,7 +34,18 @@ app.use('*', cors({
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/api/health', (c) => {
-  return c.json({ status: 'ok', service: 'wikigov-api', version: '1.0.0' });
+  // `env` reports only whether each binding is PRESENT (never its value) so we
+  // can diagnose runtime-binding issues without leaking secrets.
+  return c.json({
+    status: 'ok',
+    service: 'wikigov-api',
+    version: '1.0.0',
+    env: {
+      supabaseUrl: !!c.env.SUPABASE_URL,
+      supabaseKey: !!c.env.SUPABASE_ANON_KEY,
+      llmKey: !!c.env.LLM_API_KEY,
+    },
+  });
 });
 
 // ── RAG Query ────────────────────────────────────────────────────────────────
