@@ -185,6 +185,40 @@ def upsert_edge(cur, edge):
         )
 
 
+_BACKBONE = [
+    ("root-tn-government",       "root", "Government of Tamil Nadu",
+     "தமிழ்நாடு அரசு", "Root of the Tamil Nadu knowledge graph — all departments branch from here."),
+    ("hub-council-of-ministers", "hub",  "Council of Ministers",
+     "அமைச்சரவை", "The Council of Ministers of Tamil Nadu."),
+    ("hub-legislative-assembly", "hub",  "Tamil Nadu Legislative Assembly",
+     "தமிழ்நாடு சட்டமன்றப் பேரவை", "The Legislative Assembly of Tamil Nadu."),
+]
+
+
+def ensure_backbone(cur):
+    """Guarantee the root + hub nodes exist (as APPROVED) so department/minister
+    edges to them don't fail the FK. Idempotent — safe to call at every run start,
+    including right after a reset that truncated the backbone."""
+    import uuid as _uuid
+    for nid, typ, en, ta, summary in _BACKBONE:
+        cur.execute("INSERT INTO nodes (id, type) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", (nid, typ))
+        cur.execute("SELECT 1 FROM node_versions WHERE node_id = %s AND valid_to IS NULL LIMIT 1", (nid,))
+        if not cur.fetchone():
+            cur.execute(
+                "INSERT INTO node_versions "
+                "(node_id, title_en, title_ta, summary_en, summary_ta, details_en, details_ta, status, valid_from) "
+                "VALUES (%s, %s, %s, %s, %s, ARRAY[]::text[], ARRAY[]::text[], 'approved', now())",
+                (nid, en, ta, summary, summary),
+            )
+    for hub in ("hub-council-of-ministers", "hub-legislative-assembly"):
+        cur.execute(
+            "INSERT INTO edges (id, from_node_id, to_node_id, relationship_type) "
+            "VALUES (%s, %s, 'root-tn-government', 'part_of') "
+            "ON CONFLICT (from_node_id, to_node_id, relationship_type) DO NOTHING",
+            (str(_uuid.uuid4()), hub),
+        )
+
+
 def audit(cur, action, target_table, target_id, changes):
     cur.execute(
         """

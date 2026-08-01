@@ -86,6 +86,9 @@ def main():
 
     conn = db.connect()
     try:
+        with conn.cursor() as cur:
+            db.ensure_backbone(cur)     # root + hubs must exist before any dept/minister edge
+        conn.commit()
         with Renderer() as renderer:
             for key in keys:
                 cfg = SOURCES[key]
