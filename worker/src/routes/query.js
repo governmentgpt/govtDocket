@@ -98,7 +98,15 @@ export async function handleQuery(c) {
 
   // ── STEP 3: Grounded synthesis over the top passages ─────────────────────────
   const top = passages.slice(0, 10);
-  const answer = await generateGroundedAnswer(queryText, top, LLM_API_KEY, LLM_MODEL, LLM_BASE_URL);
+  let answer;
+  try {
+    answer = await generateGroundedAnswer(queryText, top, LLM_API_KEY, LLM_MODEL, LLM_BASE_URL);
+  } catch (err) {
+    // Retrieval succeeded but the LLM failed — surface it distinctly instead of
+    // masking it as "No verified information was found".
+    console.error('[RAG] synthesis failed:', err.message);
+    answer = `Retrieved ${top.length} verified source(s), but the answer service is unavailable (${err.message}).`;
+  }
 
   return c.json({
     answer,
@@ -187,10 +195,14 @@ async function generateGroundedAnswer(query, passages, apiKey, model, baseUrl) {
   }
 
   const result = await res.json();
-  return (
-    result.choices?.[0]?.message?.content ||
-    'No verified information was found.'
-  );
+  const content = result.choices?.[0]?.message?.content;
+  if (!content) {
+    // Distinguish an LLM problem (wrong base URL/model → no choices) from a
+    // genuine refusal. Silently defaulting to "No verified information" hid this.
+    console.error('[RAG] LLM returned no content:', JSON.stringify(result).slice(0, 800));
+    throw new Error('LLM returned no content (check LLM_BASE_URL / LLM_MODEL)');
+  }
+  return content;
 }
 
 // ── Simulation fallback ───────────────────────────────────────────────────────
