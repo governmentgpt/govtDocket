@@ -34,28 +34,55 @@ def _abs(base, href):
     return urljoin(base, href)
 
 
-def _looks_internal(base, href):
-    return href and not href.startswith(("mailto:", "javascript:", "#"))
+def _host(cfg):
+    return cfg["base_url"].split("//")[-1].replace("www.", "").rstrip("/")
+
+
+def _internal(cfg, url):
+    """Same-site check that does NOT bleed into sibling subdomains
+    (e.g. tn.gov.in must not match assembly.tn.gov.in)."""
+    host = _host(cfg)
+    return ("//" + host) in url or ("//www." + host) in url
+
+
+def _is_pdf(url):
+    return url.lower().split("?")[0].endswith(".pdf")
+
+
+def _is_image(url):
+    return bool(re.search(r"\.(jpe?g|png|tiff?)$", url.lower().split("?")[0]))
+
+
+def _title_from(a, url):
+    """Best-effort human title for a link. Many TN PDFs have EMPTY anchor text
+    (assembly /documents), so fall back to the surrounding row/label, then to a
+    humanised filename."""
+    t = (a.get_text(" ", strip=True) or "").strip()
+    if t:
+        return t[:400]
+    for tag in ("tr", "li", "td", "p", "h3", "h4"):
+        parent = a.find_parent(tag)
+        if parent:
+            pt = parent.get_text(" ", strip=True)
+            if pt and len(pt) < 300:
+                return pt[:400]
+    name = url.split("?")[0].rstrip("/").rsplit("/", 1)[-1]
+    name = re.sub(r"\.(pdf|jpe?g|png|tiff?)$", "", name, flags=re.I)
+    name = re.sub(r"[_\-]+", " ", name).strip()
+    return name.title()[:400] or None
 
 
 # ── Discovery ────────────────────────────────────────────────────────────────
-def discover(source_key, cfg, renderer, max_links=200):
+def discover(source_key, cfg, renderer, max_links=300):
     """Return a list of artifact dicts for one source.
 
-    Strategy by focus:
-      pdf  → collect all .pdf links on the list page (and one level of internal
-             department pages, bounded by max_links).
-      html → collect internal detail links (scheme / department pages).
-    Whatsnew is special-cased into dated event artifacts.
+    Crawls each configured seed page. Direct PDF/image links become artifacts;
+    when cfg['follow'] is set, internal links matching it are followed one level
+    to collect the PDFs on their detail pages (e.g. gazette issue pages, GO dept
+    pages). Titles use _title_from() so empty-anchor PDFs still get a name.
     """
-    list_url = _abs(cfg["base_url"], cfg["list_path"])
-    html = renderer.render(list_url)
-    soup = BeautifulSoup(html, "lxml")
-
-    if source_key == "tn-whatsnew":
-        return _discover_whatsnew(cfg, soup)
-
-    anchors = soup.find_all("a", href=True)
+    seeds = cfg.get("seeds") or [cfg["list_path"]]
+    follow_re = re.compile(cfg["follow"]) if cfg.get("follow") else None
     artifacts, seen = [], set()
 
     def add(url, title, atype):
@@ -68,39 +95,45 @@ def discover(source_key, cfg, renderer, max_links=200):
             "published_date": None, "language": "EN", "meta": {"source": source_key},
         })
 
-    # Direct artifacts on the list page.
-    dept_links = []
-    for a in anchors:
-        href = a["href"].strip()
-        if not _looks_internal(cfg["base_url"], href):
-            continue
-        url = _abs(cfg["base_url"], href)
-        text = a.get_text(" ", strip=True)
-        if href.lower().endswith(".pdf"):
-            add(url, text, "pdf")
-        elif re.search(r"\.(jpe?g|png|tiff?)$", href.lower()):
-            add(url, text, "image")
-        elif cfg["focus"] == "html" and text and cfg["base_url"] in url:
-            add(url, text, "html")                       # CALIBRATE: detail-page filter
-        elif cfg["focus"] == "pdf" and cfg["base_url"] in url:
-            dept_links.append((url, text))               # candidate drill-down page
+    def collect(soup, base):
+        """Collect direct PDFs/images on a page; return internal links to follow."""
+        to_follow = []
+        for a in soup.find_all("a", href=True):
+            url = _abs(base, a["href"].strip())
+            if not _internal(cfg, url) or "#" in url:
+                continue
+            if _is_pdf(url):
+                add(url, _title_from(a, url), "pdf")
+            elif _is_image(url):
+                add(url, _title_from(a, url), "image")
+            elif cfg["focus"] == "html":
+                add(url, _title_from(a, url), "html")            # detail page as html artifact
+            elif follow_re and follow_re.search(url):
+                to_follow.append(url)
+        return to_follow
 
-    # For PDF sources, follow one level of internal pages to reach the PDFs.
-    if cfg["focus"] == "pdf":
-        for url, _ in dept_links[:max_links]:
+    for seed in seeds:
+        seed_url = _abs(cfg["base_url"], seed)
+        try:
+            soup = BeautifulSoup(renderer.render(seed_url), "lxml")
+        except Exception:
+            continue
+
+        if source_key == "tn-whatsnew":
+            for art in _discover_whatsnew(cfg, soup):
+                add(art["source_url"], art["title"], art["artifact_type"])
+            continue
+
+        for follow_url in collect(soup, seed_url)[:max_links]:
             try:
-                sub = BeautifulSoup(renderer.render(url), "lxml")
+                sub = BeautifulSoup(renderer.render(follow_url), "lxml")
             except Exception:
                 continue
-            for a in sub.find_all("a", href=True):
-                href = a["href"].strip()
-                low = href.lower()
-                if low.endswith(".pdf"):
-                    add(_abs(url, href), a.get_text(" ", strip=True), "pdf")
-                elif re.search(r"\.(jpe?g|png|tiff?)$", low):
-                    add(_abs(url, href), a.get_text(" ", strip=True), "image")
+            collect(sub, follow_url)
             if len(artifacts) >= max_links:
                 break
+        if len(artifacts) >= max_links:
+            break
 
     return artifacts[:max_links]
 

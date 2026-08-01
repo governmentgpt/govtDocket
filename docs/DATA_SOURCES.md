@@ -17,8 +17,8 @@ text extraction / OCR (English **and** Tamil).
 | `tn-schemes` | Schemes | `schemes.php` → Dept / Beneficiary / A-Z → detail | HTML | Monthly | B |
 | `tn-departments` | Department details | `department_list.php` → dept → full page | HTML | Monthly | B |
 | `tn-press` | Press Releases | `press_release.php` → dated feed (Release No, EN+TA) | **PDF + image** (OCR) | **Daily** | D |
-| `tn-assembly` | Legislative Assembly | `assembly.tn.gov.in` → Members / Bills / Debates / Acts | HTML + PDF | Session (~monthly) | A |
-| `tn-gazette` | Gazette (Stationery & Printing) | `stationeryprinting.tn.gov.in` → Gazettes / Manuals | **PDF** (scanned→OCR) | Weekly | A |
+| `tn-assembly` | Legislative Assembly | `assembly.tn.gov.in/documents/menu.php` → `/documents/*.pdf` (homepage `/pdfdocs` links are stale/404) | HTML + PDF | Session (~monthly) | A |
+| `tn-gazette` | Gazette (Stationery & Printing) | `stationeryprinting.tn.gov.in/gazette.php` → `gazette_list_details.php?id&date` → PDF | **PDF** (scanned→OCR) | Weekly | A |
 | `tn-finance` | Finance Department | `financedept.tn.gov.in/en/` → Budget / Reports / Acts / Manuals | **PDF** (+ Excel) | Budget annual · Reports quarterly | B |
 
 ## What each source contributes to the graph

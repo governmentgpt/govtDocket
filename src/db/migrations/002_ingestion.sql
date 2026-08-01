@@ -65,8 +65,8 @@ VALUES
   ('tn-schemes',    'tn.gov.in',                    'B','All Departments',                 'monthly',   'https://www.tn.gov.in',            '/schemes.php',        ARRAY['html']),
   ('tn-departments','tn.gov.in',                    'B','All Departments',                 'monthly',   'https://www.tn.gov.in',            '/department_list.php',ARRAY['html']),
   ('tn-press',      'tn.gov.in',                    'D','Information and Public Relations', 'daily',     'https://www.tn.gov.in',            '/press_release.php',  ARRAY['pdf','image']),
-  ('tn-assembly',   'assembly.tn.gov.in',           'A','Legislative Assembly',            'monthly',   'https://www.assembly.tn.gov.in',   '/',                   ARRAY['html','pdf']),
-  ('tn-gazette',    'stationeryprinting.tn.gov.in', 'A','Stationery and Printing',         'weekly',    'https://stationeryprinting.tn.gov.in','/home.php',        ARRAY['pdf']),
+  ('tn-assembly',   'assembly.tn.gov.in',           'A','Legislative Assembly',            'monthly',   'https://www.assembly.tn.gov.in',   '/documents/menu.php', ARRAY['html','pdf']),
+  ('tn-gazette',    'stationeryprinting.tn.gov.in', 'A','Stationery and Printing',         'weekly',    'https://stationeryprinting.tn.gov.in','/gazette.php',     ARRAY['pdf']),
   ('tn-finance',    'financedept.tn.gov.in',        'B','Finance',                         'quarterly', 'https://financedept.tn.gov.in',    '/en/',                ARRAY['pdf','excel'])
 ON CONFLICT (source_key) DO UPDATE SET
   authority_class = EXCLUDED.authority_class,
