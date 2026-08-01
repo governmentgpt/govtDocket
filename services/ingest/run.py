@@ -90,6 +90,15 @@ def main():
             for key in keys:
                 cfg = SOURCES[key]
                 print(f"\n=== {key} ({cfg['base_url']}{cfg['list_path']}) ===")
+                if cfg.get("custom") == "ministers":
+                    import ministers
+                    with conn.cursor() as cur:
+                        source_id = db.get_source_id(cur, key)
+                    if source_id:
+                        ministers.run(conn, source_id, renderer)
+                    else:
+                        print("  ! not in sources table (run migrations/007_people_sources.sql)")
+                    continue
                 if args.mode in ("discover", "all"):
                     do_discover(conn, renderer, key, cfg)
                 if args.mode in ("ingest", "all"):

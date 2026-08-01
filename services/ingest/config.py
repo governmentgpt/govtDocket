@@ -79,6 +79,14 @@ SOURCES = {
         "focus": "pdf", "primary_node_type": "budget_line", "edge": "allocates",
         "authority": "Finance Department", "doc_type": "Budget Document",
     },
+    "tn-ministers": {
+        # People data — a custom adapter (services/ingest/ministers.py), not the
+        # generic document crawler. Produces person nodes + bio passages.
+        "base_url": "https://www.tn.gov.in", "list_path": "/minister_list.php",
+        "custom": "ministers",
+        "focus": "html", "primary_node_type": "person", "edge": "heads",
+        "authority": "Government of Tamil Nadu", "doc_type": "Minister Profile",
+    },
 }
 
 
