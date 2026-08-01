@@ -61,6 +61,10 @@ node src/ingestion/onboard.js   # scrape → structure → write git_storage JSO
 node src/ingestion/sync.js      # compile git_storage JSON → src/db/sync_data.sql
 ```
 
+## Ingestion contract (read before building any adapter)
+
+Any new data adapter or pipeline (a new source, minister data, a new attribute) MUST follow [`docs/INGESTION_CONTRACT.md`](docs/INGESTION_CONTRACT.md). It defines the output shape (`document` with `node_id` → `passages` → typed `nodes` with aliases → `edges`) that makes data searchable + graph-visible + governable **with zero query-engine changes**. Golden rule: model new data as **text (passages) + nodes + edges**, never as bespoke structured columns — the search layer (`search_passages`, `match_node_aliases`, `get_graph_rag_context`, `get_full_graph`) is type-agnostic and must never be forked per data type.
+
 ## Ingestion / git-backed storage
 
 `src/data/git_storage/` (`nodes/`, `edges/`, `documents/`) is the version-controlled source of truth for governed knowledge, one JSON file per entity. `onboard.js` proposes and writes these; `sync.js` compiles all of them into a single **idempotent** `src/db/sync_data.sql` (uses `ON CONFLICT ... DO UPDATE`) that the user applies to Supabase manually. Both scripts are currently prototypes driven by mock source data.
