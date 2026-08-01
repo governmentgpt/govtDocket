@@ -112,7 +112,10 @@ def run(conn, source_id, renderer):
                     db.upsert_node(cur, node)
                 for edge in bundle["edges"]:
                     db.upsert_edge(cur, edge)
-                db.audit(cur, "ingest_minister", "nodes", bundle["nodes"][0]["id"], {"name": name})
+                # audit target_id must be a UUID (audit_events.target_id) → use the
+                # document id; the node slug goes in the changes payload for reference.
+                db.audit(cur, "ingest_minister", "documents", bundle["document"]["id"],
+                         {"name": name, "node_id": bundle["nodes"][0]["id"]})
             conn.commit()
             count += 1
         except Exception as exc:  # noqa: BLE001
