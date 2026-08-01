@@ -118,16 +118,6 @@ def upsert_node(cur, node):
         "INSERT INTO nodes (id, type) VALUES (%(id)s, %(type)s) ON CONFLICT (id) DO NOTHING",
         node,
     )
-    cur.execute(
-        """
-        INSERT INTO node_versions
-            (node_id, title_en, title_ta, summary_en, summary_ta, details_en, details_ta, status, valid_from)
-        VALUES (%(id)s, %(title_en)s, %(title_ta)s, %(summary_en)s, %(summary_ta)s,
-                %(details_en)s, %(details_ta)s, 'pending review', now())
-        ON CONFLICT DO NOTHING
-        """,
-        node,
-    )
     for alias in node.get("aliases", []):
         cur.execute(
             """
@@ -137,17 +127,52 @@ def upsert_node(cur, node):
             """,
             (node["id"], alias["alias"], alias["lang"]),
         )
+    # If an identical current version already exists, do nothing (avoid churn).
+    # Otherwise archive the current pending version and insert the fresh one —
+    # this is what REPLACES stale/garbled content on a re-ingest. Approved
+    # versions are never touched here (governance: supersede via review).
+    cur.execute(
+        "SELECT 1 FROM node_versions WHERE node_id=%(id)s AND valid_to IS NULL "
+        "AND title_en=%(title_en)s AND summary_en=%(summary_en)s LIMIT 1",
+        node,
+    )
+    if cur.fetchone():
+        return
+    cur.execute(
+        "UPDATE node_versions SET valid_to = now() "
+        "WHERE node_id=%(id)s AND valid_to IS NULL AND status='pending review'",
+        node,
+    )
+    cur.execute(
+        """
+        INSERT INTO node_versions
+            (node_id, title_en, title_ta, summary_en, summary_ta, details_en, details_ta, status, valid_from)
+        VALUES (%(id)s, %(title_en)s, %(title_ta)s, %(summary_en)s, %(summary_ta)s,
+                %(details_en)s, %(details_ta)s, 'pending review', now())
+        """,
+        node,
+    )
 
 
 def upsert_edge(cur, edge):
+    # Get-or-create by the natural key (from, to, relationship): the edge id is a
+    # fresh uuid every run, so we conflict on the triple, then resolve the real id
+    # for the evidence link. This makes re-ingest idempotent (no dup-key errors).
     cur.execute(
         """
         INSERT INTO edges (id, from_node_id, to_node_id, relationship_type)
         VALUES (%(id)s, %(from)s, %(to)s, %(relationship)s)
-        ON CONFLICT (id) DO NOTHING
+        ON CONFLICT (from_node_id, to_node_id, relationship_type) DO NOTHING
         """,
         edge,
     )
+    cur.execute(
+        "SELECT id FROM edges WHERE from_node_id=%(from)s AND to_node_id=%(to)s "
+        "AND relationship_type=%(relationship)s",
+        edge,
+    )
+    row = cur.fetchone()
+    edge_id = row[0] if row else edge["id"]
     ev = edge.get("evidence")
     if ev:
         cur.execute(
@@ -156,7 +181,7 @@ def upsert_edge(cur, edge):
             VALUES (%s, %s, 'pending-review')
             ON CONFLICT (edge_id, passage_id) DO NOTHING
             """,
-            (edge["id"], ev["passage_id"]),
+            (edge_id, ev["passage_id"]),
         )
 
 
