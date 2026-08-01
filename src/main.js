@@ -352,14 +352,28 @@ function screenBody() {
 function render() {
   document.getElementById('app').innerHTML = `${renderHeader()}${screenBody()}`;
   bindEvents();
-  initGraph3D();
-  initExplorer();
-  // Bring the newest question to the top of the chat so the answer reads below it.
-  requestAnimationFrame(() => {
-    const msgs = document.querySelectorAll('#chat-scroll .user-message');
+  try { initGraph3D(); } catch (e) { /* graph errors must not block the UI */ }
+  try { initExplorer(); } catch (e) { /* ignore */ }
+  scrollChatToLatest();
+}
+
+// Scrolls the chat container so the newest question sits at the top (answer below).
+// Uses container-relative math (robust) + a delayed retry for late layout.
+function scrollChatToLatest() {
+  const doScroll = () => {
+    const scroll = document.getElementById('chat-scroll');
+    if (!scroll) return;
+    const msgs = scroll.querySelectorAll('.user-message');
     const last = msgs[msgs.length - 1];
-    if (last) last.scrollIntoView({ block: 'start', behavior: 'auto' });
-  });
+    if (last) {
+      const delta = last.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
+      scroll.scrollTop += delta - 8;
+    } else {
+      scroll.scrollTop = scroll.scrollHeight;
+    }
+  };
+  requestAnimationFrame(doScroll);
+  setTimeout(doScroll, 80);
 }
 
 const nodeAliases = {
