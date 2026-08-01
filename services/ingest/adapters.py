@@ -30,6 +30,19 @@ def _clean(s):
     return _CTRL_RE.sub("", s or "").strip()
 
 
+def _looks_garbled(s):
+    """Detect mojibake from PDFs with legacy (non-Unicode) Tamil fonts, where
+    pypdf returns raw font bytes as junk like 'àÁŠHù˜ ¬è«ò´'. Good chars are
+    ASCII-printable or in the Tamil Unicode block (U+0B80–U+0BFF)."""
+    if not s:
+        return False
+    good = sum(
+        1 for c in s
+        if (c.isascii() and c.isprintable()) or ("஀" <= c <= "௿") or c in " \n\t"
+    )
+    return good / len(s) < 0.65
+
+
 def _abs(base, href):
     return urljoin(base, href)
 
@@ -193,8 +206,13 @@ def extract_passages(artifact, renderer):
     if atype == "pdf":
         data = fetchers.download(artifact["source_url"])
         pages = fetchers.pdf_to_pages(data)
-        if not any(pages):                       # scanned PDF → OCR fallback
-            pages = fetchers.ocr_pdf_page_images(data)
+        # OCR-fallback when there's no text layer OR the text is mojibake
+        # (legacy Tamil font). OCR (tam+eng) yields clean Unicode.
+        if not any(pages) or _looks_garbled(" ".join(pages)[:3000]):
+            ocr_pages = fetchers.ocr_pdf_page_images(data)
+            # Use OCR if it produced text; otherwise store nothing rather than
+            # keep mojibake (garbage passages poison retrieval + synthesis).
+            pages = ocr_pages if ocr_pages else []
         passages = [
             {"page": i + 1, "section": f"Page {i + 1}", "text": _clean(t)}
             for i, t in enumerate(pages) if _clean(t)
