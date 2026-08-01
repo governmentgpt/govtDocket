@@ -111,9 +111,7 @@ const API_BASE_URL = (typeof window !== 'undefined' && window.WIKIGOV_API_URL) |
 
 const state = {
   screen: 'home', lang: 'EN', query: '', selected: graph.root, mapOpen: true,
-  messages: [{ role: 'user', text: 'Help me understand Tamil Nadu school examination information.' }],
-  live: null,      // populated with { answer, citations, graph } when the API is used
-  loading: false,
+  turns: [],   // conversational history: [{ query, answer, citations, graph, loading }]
 };
 
 // ── Live retrieval API ─────────────────────────────────────────────────────────
@@ -123,23 +121,43 @@ async function askApi(query) {
   return res.json();   // { answer, citations:[], graph:{ nodes:[], edges:[] } }
 }
 
-// Runs a query through the live API when configured, else the demo resolver.
+// Builds a small subgraph from the built-in demo data (for the no-API mode).
+function demoSubgraph(nodeId) {
+  const nodes = {};
+  const edges = [];
+  const add = (id) => { const n = graph.nodes[id]; if (n) nodes[id] = { id, type: n.type, title: n.title, summary: n.summary, details: n.details }; };
+  add(nodeId);
+  graph.edges.forEach(([from, to, rel], i) => {
+    if (from === nodeId || to === nodeId) { add(from); add(to); edges.push({ id: 'e' + i, from, to, relationship: rel }); }
+  });
+  return { nodes: Object.values(nodes), edges };
+}
+
+// Appends a new turn to the conversation and answers it (live API or demo).
 async function runQuery(query) {
-  state.messages[0].text = query;
+  const turn = { query, answer: '', citations: [], graph: { nodes: [], edges: [] }, loading: true };
+  state.turns.push(turn);
+  state.screen = 'workspace';
+  render();
+
   if (!API_BASE_URL) {
-    state.live = null;
-    state.selected = resolveVectorlessRAG(query);
-    state.screen = 'workspace';
+    const nodeId = resolveVectorlessRAG(query);
+    const node = graph.nodes[nodeId] || graph.nodes[graph.root];
+    turn.answer = node.summary;
+    turn.citations = (node.sources || []).map(([name]) => ({ document: name }));
+    turn.graph = demoSubgraph(nodeId);
+    turn.loading = false;
     return render();
   }
-  state.loading = true; state.screen = 'workspace'; state.live = null; render();
   try {
     const data = await askApi(query);
-    state.live = data;
+    turn.answer = data.answer;
+    turn.citations = data.citations || [];
+    turn.graph = data.graph || { nodes: [], edges: [] };
   } catch (err) {
-    state.live = { answer: `The knowledge service is unavailable right now (${err.message}).`, citations: [], graph: { nodes: [], edges: [] } };
+    turn.answer = `The knowledge service is unavailable right now (${err.message}).`;
   } finally {
-    state.loading = false;
+    turn.loading = false;
     render();
   }
 }
@@ -230,19 +248,19 @@ function renderSources(node) {
   return `<section class="source-panel"><div class="panel-label">SOURCE EVIDENCE</div><div class="source-status"><span class="status-dot"></span><span>${esc(node.status)}</span></div>${node.sources.map(([name, desc]) => `<div class="source-card"><div class="source-icon">${icon('file')}</div><div><b>${esc(name)}</b><p>${esc(desc)}</p></div><button title="Open source">${icon('external')}</button></div>`).join('')}<p class="source-note">Production nodes show the original source, exact citation, review status, and capture time.</p></section>`;
 }
 
-function renderLiveAnswer() {
-  if (state.loading) {
-    return `<article class="answer-card"><div class="answer-head"><span class="answer-mark">W</span><div><b>WikiGov verified answer</b><small>Retrieving verified sources…</small></div></div><p class="answer-lead">Searching the approved knowledge base…</p></article>`;
+function renderTurn(turn, isLatest) {
+  const user = `<div class="user-message">${esc(turn.query)}</div>`;
+  if (turn.loading) {
+    return `${user}<article class="answer-card"><div class="answer-head"><span class="answer-mark">W</span><div><b>WikiGov verified answer</b><small>Retrieving verified sources…</small></div></div><p class="answer-lead">Searching the approved knowledge base…</p></article>`;
   }
-  const live = state.live;
-  const citeStrip = (live.citations || []).map((c) =>
+  const citeStrip = (turn.citations || []).slice(0, 8).map((c) =>
     `<span>${icon('file')} ${esc(c.document || 'Source')}${c.page ? `, p.${esc(c.page)}` : ''}</span>`
   ).join('');
-  const related = (live.graph?.nodes || []).slice(0, 6).map((n) =>
+  const related = isLatest ? (turn.graph?.nodes || []).slice(0, 6).map((n) =>
     `<button data-query="${esc(n.title || n.id)}">${esc(n.title || n.id)}</button>`
-  ).join('');
-  return `<article class="answer-card"><div class="answer-head"><span class="answer-mark">W</span><div><b>WikiGov verified answer</b><small>Grounded in approved Tamil Nadu sources</small></div><span class="answer-badge">${icon('info')} Live</span></div>
-      <p class="answer-lead">${esc(live.answer || 'No verified information was found.')}</p>
+  ).join('') : '';
+  return `${user}<article class="answer-card"><div class="answer-head"><span class="answer-mark">W</span><div><b>WikiGov verified answer</b><small>Grounded in approved Tamil Nadu sources</small></div><span class="answer-badge">${icon('info')} Live</span></div>
+      <p class="answer-lead">${esc(turn.answer || 'No verified information was found.')}</p>
       ${citeStrip ? `<div class="citation-strip">${citeStrip}</div>` : ''}
       <div class="answer-feedback"><span>Is this helpful?</span><button>Helpful</button><button>Needs improvement</button><button class="report">Report issue</button></div>
     </article>
@@ -250,51 +268,53 @@ function renderLiveAnswer() {
 }
 
 function renderWorkspace() {
-  const live = state.live || state.loading;
-  const node = graph.nodes[state.selected];
-  const answerBlock = live
-    ? renderLiveAnswer()
-    : `<article class="answer-card"><div class="answer-head"><span class="answer-mark">W</span><div><b>WikiGov verified answer</b><small>Demonstration response · source connection required</small></div><span class="answer-badge">${icon('info')} Prototype</span></div>
-          <p class="answer-lead">${esc(node.summary)}</p>
-          <div class="answer-detail"><h3>What this knowledge map can show</h3><ul>${node.details.map((item) => `<li>${esc(item)}</li>`).join('')}</ul></div>
-          <div class="citation-strip"><span>${icon('file')} ${esc(node.kicker)}</span><button data-select-source>View source model ${icon('arrow')}</button></div>
-          <div class="answer-feedback"><span>Is this helpful?</span><button>Helpful</button><button>Needs improvement</button><button class="report">Report issue</button></div>
-        </article>
-        <div class="followups"><span>Explore next</span><button data-node="official-notice">Show official notices</button><button data-node="policy-history">Show policy history</button><button data-node="department">Which department owns this?</button></div>`;
-  const mapRail = state.live
-    ? `<section class="knowledge-map" aria-label="3D knowledge map"><div class="map-heading"><div><span class="map-kicker">KNOWLEDGE MAP</span><strong>Nearest and related nodes</strong></div></div><div id="graph3d" class="graph3d-canvas"></div><p class="map-hint">Drag to rotate · scroll to zoom</p></section>`
-    : `${renderMap()}${renderSources(node)}`;
+  const latest = state.turns[state.turns.length - 1];
+  const chat = state.turns.length
+    ? state.turns.map((t, i) => renderTurn(t, i === state.turns.length - 1)).join('')
+    : `<div class="empty-chat">Ask a question to begin exploring verified Government knowledge.</div>`;
+  const railHistory = state.turns.length
+    ? state.turns.map((t, i) => `<button class="conversation ${i === state.turns.length - 1 ? 'active' : ''}"><span class="conversation-icon">${icon('search')}</span><span>${esc((t.query || '').slice(0, 40))}</span></button>`).join('')
+    : '<button class="conversation active"><span>New conversation</span></button>';
   return `<main class="workspace">
-    <aside class="conversation-rail"><div class="rail-top"><span class="panel-label">CONVERSATION</span><button class="new-chat" data-action="home">+ New search</button></div><button class="conversation active"><span class="conversation-icon">${icon('search')}</span><span>School examination information<small>Current exploration</small></span></button><div class="rail-group"><span>RECENTLY EXPLORED</span><button class="conversation"><span>Women welfare schemes</span></button><button class="conversation"><span>Property registration process</span></button><button class="conversation"><span>Farmer support programmes</span></button></div><div class="rail-bottom"><span class="lock-icon">⌁</span><p>No account required.<br /><small>Private conversations stay in this browser.</small></p></div></aside>
+    <aside class="conversation-rail"><div class="rail-top"><span class="panel-label">CONVERSATION</span><button class="new-chat" data-action="new-chat">+ New search</button></div>${railHistory}<div class="rail-bottom"><span class="lock-icon">⌁</span><p>No account required.<br /><small>Private conversations stay in this browser.</small></p></div></aside>
     <section class="chat-stage">
       <div class="workspace-mobile-title"><button data-action="home">←</button><span>WikiGov workspace</span><button data-toggle-map>${icon('map')}</button></div>
-      <div class="chat-scroll">
-        <div class="user-message">${esc(state.messages[0].text)}</div>
-        ${answerBlock}
-      </div>
+      <div class="chat-scroll" id="chat-scroll">${chat}</div>
       <form class="composer" id="chat-form"><textarea id="chat-query" rows="1" placeholder="Ask a follow-up or a new question..." aria-label="Ask a follow-up"></textarea><button type="submit" aria-label="Send question">${icon('send')}</button><small>WikiGov will answer only from approved source material.</small></form>
     </section>
-    <aside class="map-rail ${state.mapOpen ? '' : 'closed'}">${mapRail}</aside>
+    <aside class="map-rail ${state.mapOpen ? '' : 'closed'}"><section class="knowledge-map" aria-label="3D knowledge map"><div class="map-heading"><div><span class="map-kicker">KNOWLEDGE MAP</span><strong>Nearest and related nodes</strong></div></div><div id="graph3d" class="graph3d-canvas"></div><p class="map-hint">Drag to rotate · scroll to zoom · click a node to focus</p></section></aside>
   </main>`;
 }
 
 // Renders the live subgraph into a WebGL 3D force graph (loaded via CDN in
 // index.html). Silently no-ops if the library or container is unavailable.
 function initGraph3D() {
-  if (!state.live || typeof window.ForceGraph3D !== 'function') return;
+  if (state.screen !== 'workspace' || typeof window.ForceGraph3D !== 'function') return;
+  const latest = state.turns[state.turns.length - 1];
   const el = document.getElementById('graph3d');
-  if (!el) return;
-  const nodes = (state.live.graph?.nodes || []).map((n) => ({ id: n.id, name: n.title || n.id, type: n.type }));
-  const links = (state.live.graph?.edges || []).map((e) => ({ source: e.from, target: e.to, label: e.relationship }));
+  if (!el || el.__built || !latest) return;
+  el.__built = true;
+  const nodes = (latest.graph?.nodes || []).map((n) => ({ id: n.id, name: n.title || n.id, type: n.type }));
+  const links = (latest.graph?.edges || []).map((e) => ({ source: e.from, target: e.to, label: e.relationship }));
   if (!nodes.length) { el.innerHTML = '<p class="map-hint" style="padding:1rem">No connected nodes to display.</p>'; return; }
-  const colors = { scheme: '#4f9dff', department: '#38c793', dataset: '#f2a03d', event: '#c76df0' };
-  window.ForceGraph3D()(el)
+  const fg = window.ForceGraph3D()(el)
     .backgroundColor('rgba(0,0,0,0)')
     .graphData({ nodes, links })
-    .nodeLabel('name')
-    .nodeColor((n) => colors[n.type] || '#8aa0b4')
+    .nodeColor((n) => TYPE_COLORS[n.type] || '#8aa0b4')
+    .nodeThreeObjectExtend(true)
+    .nodeThreeObject((n) => {
+      if (typeof window.SpriteText !== 'function') return null;
+      const s = new window.SpriteText(n.name);
+      s.color = '#eaf3f8'; s.textHeight = 4; s.material.depthWrite = false;
+      return s;
+    })
+    .linkColor(() => 'rgba(150,180,205,0.35)')
     .linkLabel('label')
-    .linkOpacity(0.5)
+    .linkDirectionalArrowLength(2.5).linkDirectionalArrowRelPos(1)
+    .onNodeClick((n) => {
+      const dist = 60; const r = 1 + dist / Math.hypot(n.x, n.y, n.z || 1);
+      fg.cameraPosition({ x: n.x * r, y: n.y * r, z: (n.z || 0) * r }, n, 1000);
+    })
     .width(el.clientWidth)
     .height(el.clientHeight || 340);
 }
@@ -310,6 +330,8 @@ function render() {
   bindEvents();
   initGraph3D();
   initExplorer();
+  const scroll = document.getElementById('chat-scroll');
+  if (scroll) scroll.scrollTop = scroll.scrollHeight;
 }
 
 const nodeAliases = {
@@ -342,14 +364,8 @@ function resolveVectorlessRAG(query) {
 }
 
 function openWorkspace(query = '') {
-  state.live = null;
-  if (query) {
-    state.messages[0].text = query;
-    state.selected = resolveVectorlessRAG(query);
-  } else {
-    state.selected = graph.root;
-  }
-  state.query = ''; state.screen = 'workspace'; render();
+  if (query) return runQuery(query);
+  state.screen = 'workspace'; render();
 }
 
 // ── Explore tab: full-graph 3D navigation (Obsidian / Google-Earth style) ─────
@@ -517,6 +533,7 @@ function renderDrawerBody(info) {
 
 function bindEvents() {
   document.querySelectorAll('[data-action="home"]').forEach((el) => el.addEventListener('click', () => { state.screen = 'home'; render(); }));
+  document.querySelectorAll('[data-action="new-chat"]').forEach((el) => el.addEventListener('click', () => { state.turns = []; state.screen = 'home'; render(); }));
   document.querySelectorAll('[data-action="workspace"]').forEach((el) => el.addEventListener('click', () => openWorkspace()));
   document.querySelectorAll('[data-action="explore"]').forEach((el) => el.addEventListener('click', openExplore));
   document.querySelectorAll('[data-lang]').forEach((el) => el.addEventListener('click', () => { state.lang = el.dataset.lang; render(); }));

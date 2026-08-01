@@ -39,3 +39,5 @@
 .drawer-ask{margin-top:16px;background:var(--gold);color:#0e2233;border:0;border-radius:8px;padding:9px 12px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 .drawer-ask svg{width:14px}
 .explore-empty{color:#9fb8c6;padding:40px;text-align:center}
+
+.empty-chat{color:#8a9195;font-size:13px;padding:40px 4px;text-align:center}
