@@ -18,7 +18,10 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from slugify import slugify
 
+import departments
 import fetchers
+
+ROOT_ID = "root-tn-government"
 
 
 # Strip NUL and other C0 control bytes (keep \t and \n) — Postgres text columns
@@ -111,35 +114,39 @@ def discover(source_key, cfg, renderer, max_links=300):
     detail_re = re.compile(cfg["detail"]) if cfg.get("detail") else None
     artifacts, seen = [], set()
 
-    def add(url, title, atype):
+    def add(url, title, atype, dept=None):
         if url in seen:
             return
         seen.add(url)
+        meta = {"source": source_key}
+        if dept:
+            meta["department"] = dept          # the dept whose page we followed (GO/scheme)
         artifacts.append({
             "source_url": url, "artifact_type": atype,
             "title": (title or "").strip()[:400] or None,
-            "published_date": None, "language": "EN", "meta": {"source": source_key},
+            "published_date": None, "language": "EN", "meta": meta,
         })
 
-    def scan(soup, base):
-        """Collect artifacts on a page; return internal links to follow one level.
+    def scan(soup, base, dept=None):
+        """Collect artifacts on a page; return (url, title) links to follow one level.
         PDFs/images are collected across sibling subdomains (_same_domain); detail
-        and follow links stay strict same-host (_internal)."""
+        and follow links stay strict same-host (_internal). `dept` propagates the
+        owning department name (from the followed dept page) onto the artifacts."""
         to_follow = []
         for a in soup.find_all("a", href=True):
             url = _abs(base, a["href"].strip())
             if "#" in url:
                 continue
             if _is_pdf(url) and _same_domain(cfg, url):
-                add(url, _title_from(a, url), "pdf")
+                add(url, _title_from(a, url), "pdf", dept)
             elif _is_image(url) and _same_domain(cfg, url):
-                add(url, _title_from(a, url), "image")
+                add(url, _title_from(a, url), "image", dept)
             elif detail_re and detail_re.search(url) and _internal(cfg, url):
-                add(url, _title_from(a, url), "html")               # explicit detail page
+                add(url, _title_from(a, url), "html", dept)          # explicit detail page
             elif follow_re and follow_re.search(url) and _internal(cfg, url):
-                to_follow.append(url)
+                to_follow.append((url, _title_from(a, url)))         # (dept page url, dept name)
             elif cfg["focus"] == "html" and not detail_re and not follow_re and _internal(cfg, url):
-                add(url, _title_from(a, url), "html")               # generic html fallback
+                add(url, _title_from(a, url), "html", dept)          # generic html fallback
         return to_follow
 
     for seed in seeds:
@@ -154,12 +161,12 @@ def discover(source_key, cfg, renderer, max_links=300):
                 add(art["source_url"], art["title"], art["artifact_type"])
             continue
 
-        for follow_url in scan(soup, seed_url)[:max_links]:
+        for follow_url, follow_title in scan(soup, seed_url)[:max_links]:
             try:
                 sub = BeautifulSoup(renderer.render(follow_url), "lxml")
             except Exception:
                 continue
-            scan(sub, follow_url)
+            scan(sub, follow_url, dept=follow_title)                 # tag artifacts with the dept
             if len(artifacts) >= max_links:
                 break
         if len(artifacts) >= max_links:
@@ -249,54 +256,57 @@ def _chunk(text, size=900):
 
 
 # ── Transform passages → graph bundle ────────────────────────────────────────
-def build_graph(source_key, cfg, artifact, passages, sha256):
-    """Assemble a document + versioned passages + a topic node + a department
-    node + one evidenced edge. Everything is 'pending review'."""
-    doc_id, version_id = str(uuid.uuid4()), str(uuid.uuid4())
-    title = _clean(artifact.get("title")) or f"{cfg['doc_type']} ({source_key})"
-    authority = cfg["authority"]
-    eff_date = artifact.get("published_date") or date.today().isoformat()
+def _edge(frm, to, rel, passage_id=None):
+    return {"id": str(uuid.uuid4()), "from": frm, "to": to, "relationship": rel,
+            "evidence": ({"passage_id": passage_id} if passage_id else None)}
 
-    topic_id = f"{cfg['primary_node_type']}-{slugify(title)[:48]}"
-    dept_id = f"dept-{slugify(authority)[:48]}"
 
-    document = {
-        "id": doc_id, "vid": version_id, "url": artifact["source_url"],
-        "doc_type": cfg["doc_type"], "authority": authority, "lang": artifact.get("language", "EN"),
-        "title": title, "effective_date": eff_date, "hash": sha256,
-        "node_id": topic_id,   # links passages → topic node for approval-gated search
+def _document(artifact, cfg, title, eff_date, sha256, node_id):
+    return {
+        "id": str(uuid.uuid4()), "vid": str(uuid.uuid4()), "url": artifact["source_url"],
+        "doc_type": cfg["doc_type"], "authority": cfg["authority"], "lang": artifact.get("language", "EN"),
+        "title": title, "effective_date": eff_date, "hash": sha256, "node_id": node_id,
     }
+
+
+def build_graph(source_key, cfg, artifact, passages, sha256):
+    """Assemble a document + passages + a concept node linked to its CANONICAL
+    department (which links part_of the root). Department profile pages become
+    the canonical department node directly. Everything is 'pending review'."""
+    title = _clean(artifact.get("title")) or f"{cfg['doc_type']} ({source_key})"
+    eff_date = artifact.get("published_date") or date.today().isoformat()
+    dept_name = (artifact.get("meta") or {}).get("department") or cfg["authority"]
+    ptype = cfg["primary_node_type"]
+
     passage_rows = [
         {"id": str(uuid.uuid4()), "page": p["page"], "section": p["section"],
          "text": p["text"], "language": artifact.get("language", "EN")}
         for p in passages
     ]
+    summary = (passage_rows[0]["text"][:480] if passage_rows else title)
 
-    summary = (passages[0]["text"][:480] if passages else title)
+    # A department profile page IS the canonical department node.
+    if ptype == "department":
+        dept = departments.dept_node(title)
+        document = _document(artifact, cfg, title, eff_date, sha256, dept["id"])
+        return {"document": document, "passages": passage_rows,
+                "nodes": [dept], "edges": [_edge(dept["id"], ROOT_ID, "part_of")]}
 
+    # Otherwise: a concept node (scheme/order/event/…) linked to its department.
+    topic_id = f"{ptype}-{slugify(title)[:48]}"
+    dept = departments.dept_node(dept_name)
     topic = {
-        "id": topic_id, "type": cfg["primary_node_type"],
+        "id": topic_id, "type": ptype,
         "title_en": title, "title_ta": title,
         "summary_en": summary, "summary_ta": summary,
-        "details_en": [f"Source: {source_key}", f"Authority: {authority}"],
-        "details_ta": [f"ஆதாரம்: {source_key}", f"அமைப்பு: {authority}"],
+        "details_en": [f"Department: {dept['title_en']}", f"Source: {source_key}"],
+        "details_ta": [f"ஆதாரம்: {source_key}"],
         "aliases": [{"alias": title, "lang": "EN"}],
     }
-    dept = {
-        "id": dept_id, "type": "department",
-        "title_en": authority, "title_ta": authority,
-        "summary_en": f"Publishing authority: {authority}.",
-        "summary_ta": f"வெளியீட்டு அமைப்பு: {authority}.",
-        "details_en": ["Recorded from source metadata."],
-        "details_ta": ["ஆதார தரவிலிருந்து பதிவு செய்யப்பட்டது."],
-        "aliases": [{"alias": authority, "lang": "EN"}],
-    }
+    document = _document(artifact, cfg, title, eff_date, sha256, topic_id)
 
-    edges = []
-    if cfg["edge"] and passage_rows:
-        edges.append({
-            "id": str(uuid.uuid4()), "from": topic_id, "to": dept_id,
-            "relationship": cfg["edge"], "evidence": {"passage_id": passage_rows[0]["id"]},
-        })
+    edges = [_edge(dept["id"], ROOT_ID, "part_of")]
+    if cfg.get("edge") and passage_rows:
+        edges.append(_edge(topic_id, dept["id"], cfg["edge"], passage_rows[0]["id"]))
 
     return {"document": document, "passages": passage_rows, "nodes": [topic, dept], "edges": edges}

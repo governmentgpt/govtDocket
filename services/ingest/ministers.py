@@ -19,6 +19,7 @@ from bs4 import BeautifulSoup
 from slugify import slugify
 
 import db
+import departments
 import fetchers
 
 SOURCE_KEY = "tn-ministers"
@@ -68,21 +69,18 @@ def build_person(name, role, portfolio):
         "aliases": aliases,
     }
     nodes = [person]
-    edges = []
+    # Minister → member_of → Council of Ministers hub (backbone from migration 008)
+    edges = [{"id": str(uuid.uuid4()), "from": person_id, "to": "hub-council-of-ministers",
+              "relationship": "member_of", "evidence": None}]
 
     dept_name = _dept_from_role(role)
     if dept_name:
-        dept_id = f"dept-{slugify(dept_name)[:48]}"
-        nodes.append({
-            "id": dept_id, "type": "department", "title_en": dept_name, "title_ta": dept_name,
-            "summary_en": f"Department headed by {name}.", "summary_ta": f"{name} தலைமையிலான துறை.",
-            "details_en": [f"Minister: {name}"], "details_ta": [f"அமைச்சர்: {name}"],
-            "aliases": [{"alias": dept_name, "lang": "EN"}],
-        })
-        edges.append({
-            "id": str(uuid.uuid4()), "from": person_id, "to": dept_id,
-            "relationship": "heads", "evidence": {"passage_id": passage["id"]},
-        })
+        dept = departments.dept_node(dept_name)     # canonical department node
+        nodes.append(dept)
+        edges.append({"id": str(uuid.uuid4()), "from": person_id, "to": dept["id"],
+                      "relationship": "heads", "evidence": {"passage_id": passage["id"]}})
+        edges.append({"id": str(uuid.uuid4()), "from": dept["id"], "to": "root-tn-government",
+                      "relationship": "part_of", "evidence": None})
 
     return {"document": document, "passages": [passage], "nodes": nodes, "edges": edges}
 

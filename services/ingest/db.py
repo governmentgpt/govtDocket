@@ -45,7 +45,7 @@ def record_discovered(cur, source_id, artifact: dict):
 def pending_artifacts(cur, source_id, limit=200):
     cur.execute(
         """
-        SELECT id, source_url, artifact_type, title, published_date, language
+        SELECT id, source_url, artifact_type, title, published_date, language, meta
         FROM discovered_artifacts
         WHERE source_id = %s AND status = 'new'
         ORDER BY discovered_at
@@ -53,7 +53,7 @@ def pending_artifacts(cur, source_id, limit=200):
         """,
         (source_id, limit),
     )
-    cols = ["id", "source_url", "artifact_type", "title", "published_date", "language"]
+    cols = ["id", "source_url", "artifact_type", "title", "published_date", "language", "meta"]
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
