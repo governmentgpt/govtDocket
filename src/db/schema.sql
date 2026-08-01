@@ -61,14 +61,14 @@ CREATE TABLE IF NOT EXISTS passages (
 
 -- 6. Nodes (Concepts)
 CREATE TABLE IF NOT EXISTS nodes (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id TEXT PRIMARY KEY, -- human-readable slug, e.g. 'widow-pension-scheme'
     type VARCHAR(100) NOT NULL -- 'scheme', 'department', 'event', 'eligibility', 'process'
 );
 
 -- 7. Node Versions (temporal/validity state)
 CREATE TABLE IF NOT EXISTS node_versions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    node_id UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     title_en VARCHAR(255) NOT NULL,
     title_ta VARCHAR(255) NOT NULL,
     summary_en TEXT NOT NULL,
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS node_versions (
 -- 8. Node Aliases (Search targets in Tamil and English)
 CREATE TABLE IF NOT EXISTS node_aliases (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    node_id UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     alias VARCHAR(255) NOT NULL,
     language CHAR(2) NOT NULL CHECK (language IN ('EN', 'TA')),
     UNIQUE (node_id, alias, language)
@@ -95,8 +95,8 @@ CREATE TABLE IF NOT EXISTS node_aliases (
 -- 9. Edges (Relationships)
 CREATE TABLE IF NOT EXISTS edges (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    from_node_id UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-    to_node_id UUID NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    from_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    to_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     relationship_type VARCHAR(100) NOT NULL, -- 'governed_by', 'requires', 'clarifies', etc.
     UNIQUE (from_node_id, to_node_id, relationship_type)
 );

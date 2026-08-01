@@ -46,12 +46,26 @@ class Renderer:
 
 
 def download(url: str) -> bytes:
-    """Download a binary artifact (PDF/image) with httpx."""
+    """Download a binary artifact (PDF/image) with httpx.
+
+    Several TN gov hosts have TLS misconfigurations (e.g. a cert not valid for a
+    www. subdomain). On a certificate/SSL failure we retry once without
+    verification — acceptable here because the payload is public and we hash it."""
     import httpx
-    with httpx.Client(follow_redirects=True, timeout=REQUEST_TIMEOUT) as client:
-        resp = client.get(url)
-        resp.raise_for_status()
-        return resp.content
+
+    def _get(verify):
+        with httpx.Client(follow_redirects=True, timeout=REQUEST_TIMEOUT, verify=verify) as client:
+            resp = client.get(url)
+            resp.raise_for_status()
+            return resp.content
+
+    try:
+        return _get(True)
+    except Exception as exc:  # noqa: BLE001
+        msg = str(exc).upper()
+        if "CERTIFICATE" in msg or "SSL" in msg:
+            return _get(False)
+        raise
 
 
 def pdf_to_pages(data: bytes) -> list[str]:
@@ -63,21 +77,24 @@ def pdf_to_pages(data: bytes) -> list[str]:
 
 
 def ocr_image(data: bytes) -> str:
-    """OCR a scanned image (EN+TA) into text."""
-    import pytesseract
-    from PIL import Image
-    img = Image.open(io.BytesIO(data))
-    return pytesseract.image_to_string(img, lang=OCR_LANGS).strip()
+    """OCR a scanned image (EN+TA). Returns '' if tesseract is unavailable so
+    ingestion degrades gracefully instead of failing the whole artifact."""
+    try:
+        import pytesseract
+        from PIL import Image
+        return pytesseract.image_to_string(Image.open(io.BytesIO(data)), lang=OCR_LANGS).strip()
+    except Exception:
+        return ""
 
 
 def ocr_pdf_page_images(data: bytes) -> list[str]:
     """Fallback OCR for scanned PDFs: rasterize pages then OCR.
-    Requires pdf2image + poppler; returns [] if unavailable so the caller can
-    degrade gracefully."""
+    Requires pdf2image + poppler + tesseract; returns [] if any are unavailable
+    so the caller degrades gracefully (document ingests with no OCR passages)."""
     try:
         import pytesseract
         from pdf2image import convert_from_bytes
+        images = convert_from_bytes(data)
+        return [pytesseract.image_to_string(im, lang=OCR_LANGS).strip() for im in images]
     except Exception:
         return []
-    images = convert_from_bytes(data)
-    return [pytesseract.image_to_string(im, lang=OCR_LANGS).strip() for im in images]

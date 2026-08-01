@@ -21,6 +21,15 @@ from slugify import slugify
 import fetchers
 
 
+# Strip NUL and other C0 control bytes (keep \t and \n) — Postgres text columns
+# reject NUL (0x00), which OCR/PDF extraction occasionally emits.
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _clean(s):
+    return _CTRL_RE.sub("", s or "").strip()
+
+
 def _abs(base, href):
     return urljoin(base, href)
 
@@ -137,14 +146,14 @@ def extract_passages(artifact, renderer):
         if not any(pages):                       # scanned PDF → OCR fallback
             pages = fetchers.ocr_pdf_page_images(data)
         passages = [
-            {"page": i + 1, "section": f"Page {i + 1}", "text": t}
-            for i, t in enumerate(pages) if t
+            {"page": i + 1, "section": f"Page {i + 1}", "text": _clean(t)}
+            for i, t in enumerate(pages) if _clean(t)
         ]
         return passages, fetchers.sha256_bytes(data)
 
     if atype == "image":
         data = fetchers.download(artifact["source_url"])
-        text = fetchers.ocr_image(data)
+        text = _clean(fetchers.ocr_image(data))
         return ([{"page": 1, "section": "Scanned notice", "text": text}] if text else []), fetchers.sha256_bytes(data)
 
     # html
@@ -153,7 +162,7 @@ def extract_passages(artifact, renderer):
     main = soup.find("main") or soup.find(id="content") or soup.body or soup   # CALIBRATE
     text = main.get_text("\n", strip=True) if main else ""
     chunks = _chunk(text)
-    passages = [{"page": i + 1, "section": f"Section {i + 1}", "text": c} for i, c in enumerate(chunks)]
+    passages = [{"page": i + 1, "section": f"Section {i + 1}", "text": _clean(c)} for i, c in enumerate(chunks)]
     return passages, fetchers.sha256_bytes(html.encode("utf-8"))
 
 
@@ -176,7 +185,7 @@ def build_graph(source_key, cfg, artifact, passages, sha256):
     """Assemble a document + versioned passages + a topic node + a department
     node + one evidenced edge. Everything is 'pending review'."""
     doc_id, version_id = str(uuid.uuid4()), str(uuid.uuid4())
-    title = artifact.get("title") or f"{cfg['doc_type']} ({source_key})"
+    title = _clean(artifact.get("title")) or f"{cfg['doc_type']} ({source_key})"
     authority = cfg["authority"]
     eff_date = artifact.get("published_date") or date.today().isoformat()
 
