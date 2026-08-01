@@ -39,10 +39,22 @@ def _host(cfg):
 
 
 def _internal(cfg, url):
-    """Same-site check that does NOT bleed into sibling subdomains
-    (e.g. tn.gov.in must not match assembly.tn.gov.in)."""
+    """Strict same-site check for navigation/follow links — does NOT bleed into
+    sibling subdomains (tn.gov.in must not follow into assembly.tn.gov.in)."""
     host = _host(cfg)
     return ("//" + host) in url or ("//www." + host) in url
+
+
+def _url_host(url):
+    m = re.search(r"//([^/]+)", url)
+    return m.group(1).lower() if m else ""
+
+
+def _same_domain(cfg, url):
+    """Looser check for ARTIFACT links (PDF/image): allow any subdomain under the
+    source's domain, since docs are often on cms./static. hosts (e.g. press PDFs
+    live on cms.tn.gov.in)."""
+    return _url_host(url).endswith(_host(cfg))
 
 
 def _is_pdf(url):
@@ -83,6 +95,7 @@ def discover(source_key, cfg, renderer, max_links=300):
     """
     seeds = cfg.get("seeds") or [cfg["list_path"]]
     follow_re = re.compile(cfg["follow"]) if cfg.get("follow") else None
+    detail_re = re.compile(cfg["detail"]) if cfg.get("detail") else None
     artifacts, seen = [], set()
 
     def add(url, title, atype):
@@ -95,21 +108,25 @@ def discover(source_key, cfg, renderer, max_links=300):
             "published_date": None, "language": "EN", "meta": {"source": source_key},
         })
 
-    def collect(soup, base):
-        """Collect direct PDFs/images on a page; return internal links to follow."""
+    def scan(soup, base):
+        """Collect artifacts on a page; return internal links to follow one level.
+        PDFs/images are collected across sibling subdomains (_same_domain); detail
+        and follow links stay strict same-host (_internal)."""
         to_follow = []
         for a in soup.find_all("a", href=True):
             url = _abs(base, a["href"].strip())
-            if not _internal(cfg, url) or "#" in url:
+            if "#" in url:
                 continue
-            if _is_pdf(url):
+            if _is_pdf(url) and _same_domain(cfg, url):
                 add(url, _title_from(a, url), "pdf")
-            elif _is_image(url):
+            elif _is_image(url) and _same_domain(cfg, url):
                 add(url, _title_from(a, url), "image")
-            elif cfg["focus"] == "html":
-                add(url, _title_from(a, url), "html")            # detail page as html artifact
-            elif follow_re and follow_re.search(url):
+            elif detail_re and detail_re.search(url) and _internal(cfg, url):
+                add(url, _title_from(a, url), "html")               # explicit detail page
+            elif follow_re and follow_re.search(url) and _internal(cfg, url):
                 to_follow.append(url)
+            elif cfg["focus"] == "html" and not detail_re and not follow_re and _internal(cfg, url):
+                add(url, _title_from(a, url), "html")               # generic html fallback
         return to_follow
 
     for seed in seeds:
@@ -124,12 +141,12 @@ def discover(source_key, cfg, renderer, max_links=300):
                 add(art["source_url"], art["title"], art["artifact_type"])
             continue
 
-        for follow_url in collect(soup, seed_url)[:max_links]:
+        for follow_url in scan(soup, seed_url)[:max_links]:
             try:
                 sub = BeautifulSoup(renderer.render(follow_url), "lxml")
             except Exception:
                 continue
-            collect(sub, follow_url)
+            scan(sub, follow_url)
             if len(artifacts) >= max_links:
                 break
         if len(artifacts) >= max_links:

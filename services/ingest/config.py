@@ -40,13 +40,15 @@ SOURCES = {
     },
     "tn-schemes": {
         "base_url": "https://www.tn.gov.in", "list_path": "/schemes.php",
-        "seeds": ["/schemes.php"], "follow": None,
+        # schemes.php → scheme_list.php?dep_id (follow) → scheme_details.php?id (detail)
+        "seeds": ["/schemes.php"], "follow": r"scheme_list\.php", "detail": r"scheme_details\.php",
         "focus": "html", "primary_node_type": "scheme", "edge": "governed_by",
         "authority": "Government of Tamil Nadu", "doc_type": "Scheme Guideline",
     },
     "tn-departments": {
         "base_url": "https://www.tn.gov.in", "list_path": "/department_list.php",
-        "seeds": ["/department_list.php"], "follow": None,
+        # department_list.php → dept_profile.php?dep_id (detail, directly on the list page)
+        "seeds": ["/department_list.php"], "follow": None, "detail": r"dept_profile\.php",
         "focus": "html", "primary_node_type": "department", "edge": None,
         "authority": "Government of Tamil Nadu", "doc_type": "Department Profile",
     },
