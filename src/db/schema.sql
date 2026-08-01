@@ -153,6 +153,8 @@ RETURNS TABLE (
 )
 LANGUAGE sql
 STABLE
+SECURITY DEFINER
+SET search_path = public
 AS $$
     SELECT
         na.node_id::TEXT,
@@ -200,6 +202,8 @@ RETURNS TABLE (
 )
 LANGUAGE sql
 STABLE
+SECURITY DEFINER
+SET search_path = public
 AS $$
     WITH RECURSIVE graph_hops AS (
         -- Anchor: start from root node direct edges

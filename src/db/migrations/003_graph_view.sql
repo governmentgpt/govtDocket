@@ -10,6 +10,8 @@ CREATE OR REPLACE FUNCTION get_full_graph(p_status TEXT DEFAULT 'approved')
 RETURNS JSONB
 LANGUAGE plpgsql
 STABLE
+SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
     result JSONB;
