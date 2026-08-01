@@ -39,89 +39,71 @@ export async function handleQuery(c) {
     return c.json(simulateResponse(queryText));
   }
 
-  // ── STEP 1: Trigram alias match ─────────────────────────────────────────────
+  const passages = [];
+  const seen     = new Set();
+  const nodesMap = {};
+  const edgesMap = {};
+
+  // ── STEP 1: Content retrieval — full-text search over ALL approved passages ──
+  // This is the primary path: it answers open-domain topic questions from the
+  // whole corpus (What's New, Gazette, GOs, dept updates), not just one node.
+  const ftsRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'search_passages', {
+    query_text: queryText,
+    match_count: 8,
+  });
+  if (ftsRes.error) {
+    console.error('[RAG] search_passages error:', ftsRes.error);
+  } else {
+    for (const r of (ftsRes.data || [])) {
+      if (seen.has(r.passage_id)) continue;
+      seen.add(r.passage_id);
+      passages.push({
+        id: r.passage_id, text: r.text_content, page: r.page_number,
+        section: r.section_label, docTitle: r.document_title, authority: r.issuing_authority,
+      });
+      if (r.node_id && !nodesMap[r.node_id]) {
+        nodesMap[r.node_id] = { id: r.node_id, type: r.node_type || 'topic', title: r.node_title, summary: '', details: [] };
+      }
+    }
+  }
+
+  // ── STEP 2: Entity/graph context — best-effort, powers the 3D knowledge map ──
   const aliasRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'match_node_aliases', {
     query_text: queryText,
   });
-
-  if (aliasRes.error) {
-    console.error('[RAG] match_node_aliases error:', aliasRes.error);
-    return c.json({ error: 'Alias lookup failed.', detail: aliasRes.error }, 502);
-  }
-
-  if (!aliasRes.data || aliasRes.data.length === 0) {
-    return c.json({
-      answer: 'No verified information was found.',
-      citations: [],
-      graph: { nodes: [], edges: [] },
+  if (!aliasRes.error && aliasRes.data && aliasRes.data.length) {
+    const rootNodeId = aliasRes.data[0].node_id;
+    const contextRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'get_graph_rag_context', {
+      root_node_id: rootNodeId, hops_count: 2,
     });
-  }
-
-  const rootNodeId = aliasRes.data[0].node_id;
-  const matchScore = aliasRes.data[0].sim_score;
-  console.log(`[RAG] Best alias match: "${rootNodeId}" (score: ${matchScore})`);
-
-  // ── STEP 2 & 3: Graph traversal + evidence assembly ─────────────────────────
-  const contextRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'get_graph_rag_context', {
-    root_node_id: rootNodeId,
-    hops_count: 2,
-  });
-
-  if (contextRes.error) {
-    console.error('[RAG] get_graph_rag_context error:', contextRes.error);
-    return c.json({ error: 'Graph context fetch failed.', detail: contextRes.error }, 502);
-  }
-
-  // Deduplicate rows into structured sets
-  const passages   = [];
-  const nodesMap   = {};
-  const edgesMap   = {};
-
-  for (const row of (contextRes.data || [])) {
-    if (row.node_id && !nodesMap[row.node_id]) {
-      nodesMap[row.node_id] = {
-        id:      row.node_id,
-        type:    row.node_type,
-        title:   row.node_title,
-        summary: row.node_summary,
-        details: row.node_details,
-      };
-    }
-    if (row.edge_id && !edgesMap[row.edge_id]) {
-      edgesMap[row.edge_id] = {
-        id:           row.edge_id,
-        from:         row.from_node_id,
-        to:           row.to_node_id,
-        relationship: row.relationship_type,
-      };
-    }
-    if (row.passage_id && !passages.some((p) => p.id === row.passage_id)) {
-      passages.push({
-        id:        row.passage_id,
-        text:      row.text_content,
-        page:      row.page_number,
-        section:   row.section_label,
-        docTitle:  row.document_title,
-        authority: row.issuing_authority,
-      });
+    if (!contextRes.error) {
+      for (const row of (contextRes.data || [])) {
+        if (row.node_id && !nodesMap[row.node_id]) {
+          nodesMap[row.node_id] = { id: row.node_id, type: row.node_type, title: row.node_title, summary: row.node_summary, details: row.node_details };
+        }
+        if (row.edge_id && !edgesMap[row.edge_id]) {
+          edgesMap[row.edge_id] = { id: row.edge_id, from: row.from_node_id, to: row.to_node_id, relationship: row.relationship_type };
+        }
+        if (row.passage_id && !seen.has(row.passage_id)) {
+          seen.add(row.passage_id);
+          passages.push({ id: row.passage_id, text: row.text_content, page: row.page_number, section: row.section_label, docTitle: row.document_title, authority: row.issuing_authority });
+        }
+      }
     }
   }
 
-  // ── STEP 4: Grounded synthesis ───────────────────────────────────────────────
-  const answer = await generateGroundedAnswer(queryText, passages, LLM_API_KEY, LLM_MODEL, LLM_BASE_URL);
+  if (passages.length === 0) {
+    return c.json({ answer: 'No verified information was found.', citations: [], graph: { nodes: Object.values(nodesMap), edges: [] } });
+  }
+
+  // ── STEP 3: Grounded synthesis over the top passages ─────────────────────────
+  const top = passages.slice(0, 10);
+  const answer = await generateGroundedAnswer(queryText, top, LLM_API_KEY, LLM_MODEL, LLM_BASE_URL);
 
   return c.json({
     answer,
-    citations: passages.map((p) => ({
-      document:  p.docTitle,
-      authority: p.authority,
-      page:      p.page,
-      section:   p.section,
-    })),
-    graph: {
-      nodes: Object.values(nodesMap),
-      edges: Object.values(edgesMap),
-    },
+    citations: top.map((p) => ({ document: p.docTitle, authority: p.authority, page: p.page, section: p.section })),
+    graph: { nodes: Object.values(nodesMap), edges: Object.values(edgesMap) },
   });
 }
 

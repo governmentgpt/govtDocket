@@ -257,10 +257,14 @@ def build_graph(source_key, cfg, artifact, passages, sha256):
     authority = cfg["authority"]
     eff_date = artifact.get("published_date") or date.today().isoformat()
 
+    topic_id = f"{cfg['primary_node_type']}-{slugify(title)[:48]}"
+    dept_id = f"dept-{slugify(authority)[:48]}"
+
     document = {
         "id": doc_id, "vid": version_id, "url": artifact["source_url"],
         "doc_type": cfg["doc_type"], "authority": authority, "lang": artifact.get("language", "EN"),
         "title": title, "effective_date": eff_date, "hash": sha256,
+        "node_id": topic_id,   # links passages → topic node for approval-gated search
     }
     passage_rows = [
         {"id": str(uuid.uuid4()), "page": p["page"], "section": p["section"],
@@ -268,8 +272,6 @@ def build_graph(source_key, cfg, artifact, passages, sha256):
         for p in passages
     ]
 
-    topic_id = f"{cfg['primary_node_type']}-{slugify(title)[:48]}"
-    dept_id = f"dept-{slugify(authority)[:48]}"
     summary = (passages[0]["text"][:480] if passages else title)
 
     topic = {

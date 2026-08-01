@@ -84,8 +84,8 @@ def touch_crawl_state(cur, source_id, path, content_hash):
 def upsert_document(cur, source_id, doc):
     cur.execute(
         """
-        INSERT INTO documents (id, source_id, original_url, doc_type, issuing_authority, lang)
-        VALUES (%(id)s, %(source_id)s, %(url)s, %(doc_type)s, %(authority)s, %(lang)s)
+        INSERT INTO documents (id, source_id, original_url, doc_type, issuing_authority, lang, node_id)
+        VALUES (%(id)s, %(source_id)s, %(url)s, %(doc_type)s, %(authority)s, %(lang)s, %(node_id)s)
         ON CONFLICT (id) DO NOTHING
         """,
         {**doc, "source_id": source_id},
