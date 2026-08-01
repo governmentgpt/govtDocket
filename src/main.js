@@ -370,12 +370,30 @@ function openWorkspace(query = '') {
 
 // ── Explore tab: full-graph 3D navigation (Obsidian / Google-Earth style) ─────
 const TYPE_COLORS = {
+  root: '#ffcf5c', hub: '#5bd1c0',
   scheme: '#4f9dff', department: '#38c793', order: '#f2a03d', event: '#e06d9c',
   act: '#b98cff', person: '#f2c94c', constituency: '#9cc88b', sector: '#63c2c2',
   eligibility: '#e0a458', process: '#7fa8d0', budget_line: '#d98d5b', dataset: '#7bd0a0', topic: '#8aa0b4',
 };
+// Document/artifact node types hidden by default so the map reads as concept hubs.
+const DOC_TYPES = new Set(['order', 'event', 'dataset']);
 let _fg = null;          // ForceGraph3D instance
 let _graphNodes = [];    // current node list (mutated with x/y/z by the sim)
+
+// Bigger for hubs (root/council/departments), smaller for leaves.
+function nodeSize(n) {
+  const base = { root: 14, hub: 10, department: 6, person: 3, scheme: 3 }[n.type] || 2;
+  return base + Math.min(8, (n.degree || 0) * 0.4);
+}
+
+// Concept-first: hide document nodes (and their now-dangling edges) unless asked.
+function filterConcepts(data, showDocs) {
+  if (showDocs) return data;
+  const nodes = (data.nodes || []).filter((n) => !DOC_TYPES.has(n.type));
+  const ids = new Set(nodes.map((n) => n.id));
+  const edges = (data.edges || []).filter((e) => ids.has(e.from) && ids.has(e.to));
+  return { nodes, edges };
+}
 
 function openExplore() { state.live = null; state.screen = 'explore'; render(); }
 
@@ -384,6 +402,7 @@ function renderExplore() {
     <div class="explore-toolbar">
       <div class="explore-title"><span class="map-kicker">KNOWLEDGE UNIVERSE</span><strong>Explore all verified topics</strong></div>
       <input id="explore-search" placeholder="Find a topic…" aria-label="Find a topic" />
+      <label class="explore-toggle"><input type="checkbox" id="explore-docs" /> Show documents</label>
       <label class="explore-toggle"><input type="checkbox" id="explore-pending" /> Include unreviewed</label>
       <span id="explore-count" class="explore-count"></span>
     </div>
@@ -421,28 +440,36 @@ async function initExplorer() {
   if (!el || el.__built) return;
   el.__built = true;
   try {
-    const pending = document.getElementById('explore-pending')?.checked;
-    const data = await loadGraphData(pending ? 'all' : 'approved');
-    buildExplorer(el, data);
+    await refreshExplorer(true);
     wireExploreToolbar();
-    updateExploreMeta(data);
   } catch (err) {
     el.innerHTML = `<p class="explore-empty">Could not load graph: ${esc(err.message)}</p>`;
   }
+}
+
+// Loads + filters the graph and either builds the 3D view or updates it in place.
+async function refreshExplorer(rebuild) {
+  const pending = document.getElementById('explore-pending')?.checked;
+  const showDocs = document.getElementById('explore-docs')?.checked;
+  const data = filterConcepts(await loadGraphData(pending ? 'all' : 'approved'), showDocs);
+  const el = document.getElementById('graph-explorer');
+  if (rebuild) buildExplorer(el, data);
+  else if (_fg) _fg.graphData(mapGraph(data));
+  updateExploreMeta(data);
 }
 
 function buildExplorer(el, data) {
   _fg = window.ForceGraph3D()(el)
     .backgroundColor('#08131f')
     .graphData(mapGraph(data))
-    .nodeVal((n) => 2 + (n.degree || 0))
+    .nodeVal(nodeSize)
     .nodeColor((n) => (n.status && n.status !== 'approved' ? '#5b6b78' : (TYPE_COLORS[n.type] || '#8aa0b4')))
     .nodeThreeObjectExtend(true)
     .nodeThreeObject((n) => {
       if (typeof window.SpriteText !== 'function') return null;
       const s = new window.SpriteText(n.name);
       s.color = n.status && n.status !== 'approved' ? '#9fb0bd' : '#e9f2f8';
-      s.textHeight = Math.min(9, 3.5 + (n.degree || 0));
+      s.textHeight = { root: 9, hub: 7, department: 5 }[n.type] || Math.min(6, 3 + (n.degree || 0) * 0.3);
       s.material.depthWrite = false;
       return s;
     })
@@ -480,14 +507,11 @@ function wireExploreToolbar() {
     const hit = _graphNodes.find((n) => (n.name || '').toLowerCase().includes(q));
     if (hit) { flyTo(hit); openNodeDrawer(hit); }
   });
+  const refresh = () => refreshExplorer(false).catch(() => {});
   const pending = document.getElementById('explore-pending');
-  if (pending) pending.addEventListener('change', async () => {
-    try {
-      const data = await loadGraphData(pending.checked ? 'all' : 'approved');
-      if (_fg) _fg.graphData(mapGraph(data));
-      updateExploreMeta(data);
-    } catch (err) { /* keep current view */ }
-  });
+  if (pending) pending.addEventListener('change', refresh);
+  const docs = document.getElementById('explore-docs');
+  if (docs) docs.addEventListener('change', refresh);
 }
 
 async function openNodeDrawer(node) {
