@@ -15,7 +15,10 @@ EMBED_KEY      = os.environ.get("EMBED_API_KEY") or os.environ.get("LLM_API_KEY"
 def embed(texts, input_type="passage"):
     """Return a list of embedding vectors (lists of float) for `texts`, aligned
     by index. Returns None per item on failure so callers degrade gracefully."""
-    if not EMBED_KEY or not texts:
+    if not texts:
+        return []
+    if not EMBED_KEY:
+        print("[embed] no API key — export LLM_API_KEY (your NVIDIA key) or EMBED_API_KEY")
         return [None] * len(texts)
     import httpx
     payload = {"model": EMBED_MODEL, "input": [t[:8000] for t in texts],
