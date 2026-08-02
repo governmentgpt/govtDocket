@@ -110,8 +110,20 @@ export async function handleQuery(c) {
     }
   }
 
+  // ── Connect the graph: fetch edges among all retrieved nodes so the map wires
+  //    up (schemes↔departments↔ministers) instead of showing floating dots. ────
+  const nodeIds = Object.keys(nodesMap);
+  if (nodeIds.length > 1) {
+    const eRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'get_edges_among', { node_ids: nodeIds });
+    if (!eRes.error) {
+      for (const e of (eRes.data || [])) {
+        if (!edgesMap[e.id]) edgesMap[e.id] = { id: e.id, from: e.from_node_id, to: e.to_node_id, relationship: e.relationship_type };
+      }
+    }
+  }
+
   if (passages.length === 0) {
-    return c.json({ answer: 'No verified information was found.', citations: [], graph: { nodes: Object.values(nodesMap), edges: [] } });
+    return c.json({ answer: 'No verified information was found.', citations: [], graph: { nodes: Object.values(nodesMap), edges: Object.values(edgesMap) } });
   }
 
   // ── STEP 3: Grounded synthesis over the top passages ─────────────────────────

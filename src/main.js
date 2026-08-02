@@ -392,8 +392,10 @@ function screenBody() {
   return renderWorkspace();
 }
 
+let _prevScreen = null;
 function render() {
   document.getElementById('app').innerHTML = `${renderHeader()}${screenBody()}`;
+  if (state.screen !== _prevScreen) { window.scrollTo(0, 0); _prevScreen = state.screen; }
   bindEvents();
   try { initGraph3D(); } catch (e) { /* graph errors must not block the UI */ }
   try { initExplorer(); } catch (e) { /* ignore */ }
