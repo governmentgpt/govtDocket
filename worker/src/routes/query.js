@@ -25,6 +25,7 @@ export async function handleQuery(c) {
   // Embeddings for semantic retrieval (multilingual → Tamil). Reuses LLM key.
   const EMBED_MODEL    = c.env.EMBED_MODEL    || 'baai/bge-m3';   // 1024-dim, multilingual
   const EMBED_BASE_URL = c.env.EMBED_BASE_URL || LLM_BASE_URL;
+  const EMBED_API_KEY  = c.env.EMBED_API_KEY  || LLM_API_KEY;     // separate key if embeddings are on another provider
 
   const body = await c.req.json().catch(() => ({}));
   const queryText = c.req.query('q') || body.query || '';
@@ -73,7 +74,7 @@ export async function handleQuery(c) {
 
   // ── STEP 1b: Semantic retrieval — embed the query, vector-match passages ─────
   // Runs first so meaning-based hits (incl. Tamil / paraphrases) lead; FTS fills in.
-  const queryVec = await embedQuery(queryText, LLM_API_KEY, EMBED_BASE_URL, EMBED_MODEL);
+  const queryVec = await embedQuery(queryText, EMBED_API_KEY, EMBED_BASE_URL, EMBED_MODEL);
   if (queryVec) {
     const vecRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'match_passages', {
       query_embedding: queryVec, match_count: 8,
