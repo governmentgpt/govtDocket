@@ -176,7 +176,9 @@ async function embedQuery(text, apiKey, baseUrl, model) {
     const res = await fetch(`${baseUrl}/embeddings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, input: [text.slice(0, 6000)], encoding_format: 'float', truncate: 'NONE' }),
+      body: JSON.stringify(baseUrl.includes('nvidia.com')
+        ? { model, input: [text.slice(0, 6000)], encoding_format: 'float', truncate: 'NONE' }
+        : { model, input: [text.slice(0, 6000)], encoding_format: 'float' }),
     });
     if (!res.ok) { console.error('[RAG] embed error:', res.status); return null; }
     const v = (await res.json()).data?.[0]?.embedding;

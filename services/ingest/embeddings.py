@@ -21,10 +21,11 @@ def embed(texts, input_type="passage"):
         print("[embed] no API key — export LLM_API_KEY (your NVIDIA key) or EMBED_API_KEY")
         return [None] * len(texts)
     import httpx
-    # bge-m3 is symmetric (no input_type). Matches the working NVIDIA call:
-    # encoding_format=float, truncate=NONE. Inputs are pre-capped so NONE is safe.
-    payload = {"model": EMBED_MODEL, "input": [t[:6000] for t in texts],
-               "encoding_format": "float", "truncate": "NONE"}
+    # Provider-agnostic: base payload works for OpenAI/Jina/Cohere/etc.
+    # `truncate` is NVIDIA-specific — only add it for NVIDIA endpoints.
+    payload = {"model": EMBED_MODEL, "input": [t[:6000] for t in texts], "encoding_format": "float"}
+    if "nvidia.com" in EMBED_BASE_URL:
+        payload["truncate"] = "NONE"
     try:
         with httpx.Client(timeout=90) as client:
             resp = client.post(
