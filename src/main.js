@@ -809,29 +809,44 @@ function _arcPath(cx, cy, r0, r1, a0, a1) {
   return `M${x0},${y0} A${r1},${r1} 0 ${large} 1 ${x1},${y1} L${x2},${y2} A${r0},${r0} 0 ${large} 0 ${x3},${y3} Z`;
 }
 
-function renderSunburst(el) {
-  const depts = Object.values(_all.nodes).filter((n) => n.type === 'department');
-  if (!depts.length) { el.innerHTML = '<p class="explore-empty">No departments to chart yet.</p>'; return; }
-  const size = Math.min(el.clientWidth || 700, el.clientHeight || 700) || 700;
+function _sunburstSvg(depts, size) {
   const cx = size / 2, cy = size / 2, r0 = size * 0.10, r1 = size * 0.30, r2 = size * 0.46;
-  let html = `<svg class="sunburst" viewBox="0 0 ${size} ${size}" width="100%" height="100%">`;
-  html += `<circle cx="${cx}" cy="${cy}" r="${r0}" fill="#ffcf5c" data-sb="root-tn-government" style="cursor:pointer"/>`;
-  html += `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#12324a">TN Govt</text>`;
+  // Explicit pixel width/height (not %) so the SVG never collapses if the
+  // container's height is not yet definite at paint time.
+  let s = `<svg xmlns="http://www.w3.org/2000/svg" class="sunburst" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">`;
+  s += `<circle cx="${cx}" cy="${cy}" r="${r0}" fill="#ffcf5c" data-sb="root-tn-government" style="cursor:pointer"/>`;
+  s += `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#12324a">TN Govt</text>`;
   const per = (Math.PI * 2) / depts.length;
   depts.forEach((d, i) => {
     const a0 = i * per - Math.PI / 2, a1 = a0 + per;
     const col = _deptColor[d.id] || '#8aa0b4';
-    html += `<path d="${_arcPath(cx, cy, r0, r1, a0, a1 - 0.012)}" fill="${col}" opacity="0.9" data-sb="${esc(d.id)}" style="cursor:pointer"><title>${esc(d.title || d.id)}</title></path>`;
+    s += `<path d="${_arcPath(cx, cy, r0, r1, a0, a1 - 0.012)}" fill="${col}" opacity="0.9" data-sb="${esc(d.id)}" style="cursor:pointer"><title>${esc(d.title || d.id)}</title></path>`;
     const kids = Object.values(_all.nodes).filter((n) => _deptOf[n.id] === d.id && n.type !== 'department').slice(0, 40);
     const kper = (a1 - a0) / Math.max(kids.length, 1);
     kids.forEach((k, j) => {
       const ka0 = a0 + j * kper, ka1 = ka0 + kper;
-      html += `<path d="${_arcPath(cx, cy, r1, r2, ka0, ka1 - 0.004)}" fill="${col}" opacity="0.55" data-sb="${esc(k.id)}" style="cursor:pointer"><title>${esc(k.title || k.id)}</title></path>`;
+      s += `<path d="${_arcPath(cx, cy, r1, r2, ka0, ka1 - 0.004)}" fill="${col}" opacity="0.55" data-sb="${esc(k.id)}" style="cursor:pointer"><title>${esc(k.title || k.id)}</title></path>`;
     });
   });
-  html += `</svg><p class="sunburst-hint">Overview — click a wedge to open it on the map</p>`;
-  el.innerHTML = html;
-  el.querySelectorAll('[data-sb]').forEach((p) => p.addEventListener('click', () => { const id = p.dataset.sb; setMode('map'); revealNode(id); }));
+  return s + `</svg>`;
+}
+
+function renderSunburst(el) {
+  const depts = Object.values(_all.nodes).filter((n) => n.type === 'department');
+  if (!depts.length) { el.innerHTML = '<p class="explore-empty">No departments to chart yet.</p>'; return; }
+  el.innerHTML = '<div class="sunburst-wrap"></div><p class="sunburst-hint">Overview — click a wedge to open it on the map</p>';
+  const wrap = el.querySelector('.sunburst-wrap');
+  // Measure after layout settles so we don't read a transient 0 height.
+  requestAnimationFrame(() => {
+    const box = Math.min(el.clientWidth || 700, el.clientHeight || 700);
+    const size = Math.max(320, box || 700);
+    // DOMParser guarantees correct SVG namespacing regardless of innerHTML quirks.
+    const svg = new DOMParser().parseFromString(_sunburstSvg(depts, size), 'image/svg+xml').documentElement;
+    wrap.innerHTML = '';
+    wrap.appendChild(svg);
+    svg.querySelectorAll('[data-sb]').forEach((p) =>
+      p.addEventListener('click', () => { const id = p.dataset.sb; setMode('map'); revealNode(id); }));
+  });
 }
 
 function flyTo(node) {

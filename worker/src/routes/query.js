@@ -175,6 +175,7 @@ async function embedQuery(text, apiKey, baseUrl, model) {
       body: JSON.stringify(baseUrl.includes('nvidia.com')
         ? { model, input: [text.slice(0, 6000)], encoding_format: 'float', truncate: 'NONE' }
         : { model, input: [text.slice(0, 6000)], encoding_format: 'float' }),
+      signal: AbortSignal.timeout(15000),   // 15s cap → fall back to lexical retrieval
     });
     if (!res.ok) { console.error('[RAG] embed error:', res.status); return null; }
     const v = (await res.json()).data?.[0]?.embedding;
@@ -211,23 +212,33 @@ async function generateGroundedAnswer(query, passages, history, apiKey, model, b
     `4. Write in simple, clear language for a citizen.\n\n` +
     `Passages:\n${passagesContext}`;
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method:  'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...(history || []).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.text || '') })),
-        { role: 'user',   content: query },
-      ],
-      temperature: 0.1,   // near-deterministic
-      max_tokens:  800,
-    }),
-  });
+  // Fail fast if the LLM provider is slow/down: without this, a hung upstream
+  // makes the whole request wait until the platform's ~120s gateway timeout
+  // (observed as a 524) before we can fall back to raw passages.
+  let res;
+  try {
+    res = await fetch(`${baseUrl}/chat/completions`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...(history || []).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.text || '') })),
+          { role: 'user',   content: query },
+        ],
+        temperature: 0.1,   // near-deterministic
+        max_tokens:  800,
+      }),
+      signal: AbortSignal.timeout(30000),   // 30s cap → fast fallback to sources
+    });
+  } catch (e) {
+    const reason = e.name === 'TimeoutError' ? 'timed out' : e.message;
+    throw new Error(`LLM endpoint ${reason}`);
+  }
 
   if (!res.ok) {
     const err = await res.text();
