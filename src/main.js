@@ -491,7 +491,8 @@ function openWorkspace(query = '') {
 const CLUSTER_PALETTE = ['#4f9dff', '#38c793', '#f2a03d', '#e06d9c', '#b98cff', '#f2c94c',
   '#63c2c2', '#e0a458', '#7fa8d0', '#d98d5b', '#7bd0a0', '#9cc88b', '#c98cff', '#5bd1c0', '#ff9e6d', '#6dd3ff'];
 const DOC_TYPES = new Set(['order', 'event', 'dataset']);
-const CHILD_CAP = 50;   // max children revealed per expand, to keep it readable
+const CHILD_CAP = 50;        // cap for AUTO-opened nodes (keeps the first view clean)
+const USER_CHILD_CAP = 300;  // when the user explicitly expands, show (nearly) all children
 // Per-type palette for the conversation map (Explore uses cluster colours instead).
 const TYPE_COLORS = {
   root: '#ffcf5c', hub: '#5bd1c0', department: '#38c793', scheme: '#4f9dff', order: '#f2a03d',
@@ -503,6 +504,7 @@ let _fg = null;
 let _all = { nodes: {}, edges: [] };   // full graph
 let _adj = {};                          // id -> [{id, rel}] (sorted by neighbour degree)
 let _expanded = new Set();              // currently-expanded node ids
+let _userExpanded = new Set();          // subset the user explicitly clicked → show all children
 let _deptOf = {};                       // node id -> owning department id (cluster)
 let _deptColor = {};                    // department id -> colour
 let _graphNodes = [];                   // currently-visible nodes (sim-mutated with x/y/z)
@@ -564,9 +566,10 @@ function computeVisible() {
   while (q.length) {
     const id = q.shift();
     if (!_expanded.has(id)) continue;
+    const cap = _userExpanded.has(id) ? USER_CHILD_CAP : CHILD_CAP;
     let added = 0;
     for (const nb of (_adj[id] || [])) {
-      if (added >= CHILD_CAP) break;
+      if (added >= cap) break;
       if (!visible.has(nb.id)) { visible.add(nb.id); q.push(nb.id); added++; }
     }
   }
@@ -590,7 +593,8 @@ function visibleGraph() {
 }
 
 function toggleExpand(id) {
-  if (_expanded.has(id)) _expanded.delete(id); else _expanded.add(id);
+  if (_expanded.has(id)) { _expanded.delete(id); _userExpanded.delete(id); }
+  else { _expanded.add(id); _userExpanded.add(id); }   // explicit expand → show all children
   if (_fg) _fg.graphData(visibleGraph());
   updateExploreMeta();
 }
@@ -598,8 +602,8 @@ function toggleExpand(id) {
 // Reveal a node (used by search + drawer neighbours): expand its cluster + itself, fly to it.
 function revealNode(id) {
   const dept = _deptOf[id];
-  if (dept) _expanded.add(dept);
-  _expanded.add(id);
+  if (dept) { _expanded.add(dept); _userExpanded.add(dept); }
+  _expanded.add(id); _userExpanded.add(id);
   if (_fg) _fg.graphData(visibleGraph());
   updateExploreMeta();
   setTimeout(() => {
@@ -653,6 +657,7 @@ async function loadIndex() {
   // start expanded at the root(s) so departments + hubs show; expand hubs too if no root
   _expanded = new Set(Object.values(_all.nodes).filter((n) => n.type === 'root').map((n) => n.id));
   if (!_expanded.size) Object.values(_all.nodes).filter((n) => n.type === 'hub').forEach((n) => _expanded.add(n.id));
+  _userExpanded = new Set();
 }
 
 async function initExplorer() {
