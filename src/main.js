@@ -548,6 +548,8 @@ let _all = { nodes: {}, edges: [] };   // full graph
 let _adj = {};                          // id -> [{id, rel}] (sorted by neighbour degree)
 let _expanded = new Set();              // currently-expanded node ids
 let _userExpanded = new Set();          // subset the user explicitly clicked → show all children
+let _mode = 'map';                      // 'map' (semantic zoom) | 'focus' (DOI) | 'overview' (sunburst)
+let _focus = null;                      // focus node id in Focus mode
 let _deptOf = {};                       // node id -> owning department id (cluster)
 let _deptColor = {};                    // department id -> colour
 let _graphNodes = [];                   // currently-visible nodes (sim-mutated with x/y/z)
@@ -660,8 +662,13 @@ function openExplore() { state.live = null; state.screen = 'explore'; render(); 
 function renderExplore() {
   return `<main class="explore-page">
     <div class="explore-toolbar">
-      <div class="explore-title"><span class="map-kicker">KNOWLEDGE UNIVERSE</span><strong>Explore verified topics</strong></div>
+      <div class="explore-modes" role="tablist">
+        <button data-mode="map" class="${_mode === 'map' ? 'active' : ''}" title="Semantic-zoom map">Map</button>
+        <button data-mode="focus" class="${_mode === 'focus' ? 'active' : ''}" title="Focus + context (one node at a time)">Focus</button>
+        <button data-mode="overview" class="${_mode === 'overview' ? 'active' : ''}" title="Sunburst overview">Overview</button>
+      </div>
       <input id="explore-search" placeholder="Find a topic…" aria-label="Find a topic" />
+      <button id="explore-reset" title="Restart navigation">Reset</button>
       <label class="explore-toggle"><input type="checkbox" id="explore-docs" /> Show documents</label>
       <label class="explore-toggle"><input type="checkbox" id="explore-pending" /> Include unreviewed</label>
       <span id="explore-count" class="explore-count"></span>
@@ -719,10 +726,11 @@ async function initExplorer() {
 }
 
 function buildExplorer(el) {
+  el.innerHTML = '';
   _fg = window.ForceGraph3D()(el)
     .backgroundColor('#08131f')
-    .graphData(visibleGraph())
-    .nodeVal(nodeSize)
+    .graphData(currentGraphData())
+    .nodeVal((n) => (n.focus ? 14 : nodeSize(n)))
     .nodeColor((n) => n.color)
     .nodeOpacity(0.95)
     .nodeThreeObjectExtend(true)
@@ -737,9 +745,93 @@ function buildExplorer(el) {
     .linkColor(() => 'rgba(150,180,205,0.20)')
     .linkDirectionalArrowLength(2.2)
     .linkDirectionalArrowRelPos(1)
-    .onNodeClick((node) => { flyTo(node); toggleExpand(node.id); openNodeDrawer(node); })
+    .onNodeClick((node) => {
+      flyTo(node);
+      if (_mode === 'focus') { _focus = node.id; if (_fg) _fg.graphData(focusGraph()); }
+      else { toggleExpand(node.id); }
+      openNodeDrawer(node);
+    })
     .width(el.clientWidth)
     .height(el.clientHeight);
+}
+
+// ── Representation modes ──────────────────────────────────────────────────────
+function currentGraphData() { return _mode === 'focus' ? focusGraph() : visibleGraph(); }
+
+// Focus + context (DOI): show a node and its immediate neighbourhood only.
+function subgraph(ids, focusId) {
+  _graphNodes = [...ids].map((id) => {
+    const n = _all.nodes[id];
+    return { id, name: n.title || id, type: n.type, degree: _all.deg[id] || 0, color: nodeColor(n), focus: id === focusId };
+  });
+  const links = _all.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => ({ source: e.from, target: e.to }));
+  return { nodes: _graphNodes, links };
+}
+
+function focusGraph() {
+  if (!_focus || !_all.nodes[_focus]) {
+    const ids = new Set(Object.values(_all.nodes).filter((n) => n.type === 'root' || n.type === 'hub' || n.type === 'department').map((n) => n.id));
+    return subgraph(ids, null);
+  }
+  const ids = new Set([_focus, ...(_adj[_focus] || []).slice(0, USER_CHILD_CAP).map((nb) => nb.id)]);
+  return subgraph(ids, _focus);
+}
+
+function setMode(mode) {
+  _mode = mode;
+  _focus = null;
+  document.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
+  const el = document.getElementById('graph-explorer');
+  if (!el) return;
+  if (mode === 'overview') renderSunburst(el);
+  else buildExplorer(el);
+  updateExploreMeta();
+}
+
+function resetExplore() {
+  _expanded = new Set(Object.values(_all.nodes).filter((n) => n.type === 'root').map((n) => n.id));
+  if (!_expanded.size) Object.values(_all.nodes).filter((n) => n.type === 'hub').forEach((n) => _expanded.add(n.id));
+  _userExpanded = new Set();
+  _focus = null;
+  const drawer = document.getElementById('explore-drawer'); if (drawer) drawer.classList.add('closed');
+  const el = document.getElementById('graph-explorer');
+  if (!el) return;
+  if (_mode === 'overview') renderSunburst(el); else buildExplorer(el);
+  updateExploreMeta();
+}
+
+// Sunburst overview (space-filling hierarchy: root → departments → children).
+function _polar(cx, cy, r, a) { return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; }
+function _arcPath(cx, cy, r0, r1, a0, a1) {
+  const [x0, y0] = _polar(cx, cy, r1, a0), [x1, y1] = _polar(cx, cy, r1, a1);
+  const [x2, y2] = _polar(cx, cy, r0, a1), [x3, y3] = _polar(cx, cy, r0, a0);
+  const large = (a1 - a0) > Math.PI ? 1 : 0;
+  return `M${x0},${y0} A${r1},${r1} 0 ${large} 1 ${x1},${y1} L${x2},${y2} A${r0},${r0} 0 ${large} 0 ${x3},${y3} Z`;
+}
+
+function renderSunburst(el) {
+  const depts = Object.values(_all.nodes).filter((n) => n.type === 'department');
+  if (!depts.length) { el.innerHTML = '<p class="explore-empty">No departments to chart yet.</p>'; return; }
+  const size = Math.min(el.clientWidth || 700, el.clientHeight || 700) || 700;
+  const cx = size / 2, cy = size / 2, r0 = size * 0.10, r1 = size * 0.30, r2 = size * 0.46;
+  let html = `<svg class="sunburst" viewBox="0 0 ${size} ${size}" width="100%" height="100%">`;
+  html += `<circle cx="${cx}" cy="${cy}" r="${r0}" fill="#ffcf5c" data-sb="root-tn-government" style="cursor:pointer"/>`;
+  html += `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#12324a">TN Govt</text>`;
+  const per = (Math.PI * 2) / depts.length;
+  depts.forEach((d, i) => {
+    const a0 = i * per - Math.PI / 2, a1 = a0 + per;
+    const col = _deptColor[d.id] || '#8aa0b4';
+    html += `<path d="${_arcPath(cx, cy, r0, r1, a0, a1 - 0.012)}" fill="${col}" opacity="0.9" data-sb="${esc(d.id)}" style="cursor:pointer"><title>${esc(d.title || d.id)}</title></path>`;
+    const kids = Object.values(_all.nodes).filter((n) => _deptOf[n.id] === d.id && n.type !== 'department').slice(0, 40);
+    const kper = (a1 - a0) / Math.max(kids.length, 1);
+    kids.forEach((k, j) => {
+      const ka0 = a0 + j * kper, ka1 = ka0 + kper;
+      html += `<path d="${_arcPath(cx, cy, r1, r2, ka0, ka1 - 0.004)}" fill="${col}" opacity="0.55" data-sb="${esc(k.id)}" style="cursor:pointer"><title>${esc(k.title || k.id)}</title></path>`;
+    });
+  });
+  html += `</svg><p class="sunburst-hint">Overview — click a wedge to open it on the map</p>`;
+  el.innerHTML = html;
+  el.querySelectorAll('[data-sb]').forEach((p) => p.addEventListener('click', () => { const id = p.dataset.sb; setMode('map'); revealNode(id); }));
 }
 
 function flyTo(node) {
@@ -767,13 +859,27 @@ function wireExploreToolbar() {
     const q = search.value.trim().toLowerCase();
     if (!q) return;
     const hit = Object.values(_all.nodes).find((n) => (n.title || n.id).toLowerCase().includes(q));
-    if (hit) revealNode(hit.id);
+    if (!hit) return;
+    if (_mode === 'focus') { _focus = hit.id; if (_fg) _fg.graphData(focusGraph()); updateExploreMeta(); }
+    else { if (_mode === 'overview') setMode('map'); revealNode(hit.id); }
   });
-  const reload = async () => { try { await loadIndex(); if (_fg) _fg.graphData(visibleGraph()); updateExploreMeta(); } catch (e) { /* keep */ } };
+  const reload = async () => {
+    try {
+      await loadIndex();
+      const el = document.getElementById('graph-explorer');
+      if (_mode === 'overview') { if (el) renderSunburst(el); }
+      else if (_fg) { _fg.graphData(currentGraphData()); }
+      updateExploreMeta();
+    } catch (e) { /* keep */ }
+  };
   const pending = document.getElementById('explore-pending');
   if (pending) pending.addEventListener('change', reload);
   const docs = document.getElementById('explore-docs');
   if (docs) docs.addEventListener('change', reload);
+  document.querySelectorAll('[data-mode]').forEach((b) =>
+    b.addEventListener('click', () => setMode(b.dataset.mode)));
+  const reset = document.getElementById('explore-reset');
+  if (reset) reset.addEventListener('click', resetExplore);
 }
 
 async function openNodeDrawer(node) {
