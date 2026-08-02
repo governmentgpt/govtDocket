@@ -487,30 +487,125 @@ function openWorkspace(query = '') {
 }
 
 // ── Explore tab: full-graph 3D navigation (Obsidian / Google-Earth style) ─────
-const TYPE_COLORS = {
-  root: '#ffcf5c', hub: '#5bd1c0',
-  scheme: '#4f9dff', department: '#38c793', order: '#f2a03d', event: '#e06d9c',
-  act: '#b98cff', person: '#f2c94c', constituency: '#9cc88b', sector: '#63c2c2',
-  eligibility: '#e0a458', process: '#7fa8d0', budget_line: '#d98d5b', dataset: '#7bd0a0', topic: '#8aa0b4',
-};
-// Document/artifact node types hidden by default so the map reads as concept hubs.
+// Palette for department clusters — each department + its subtree share one hue.
+const CLUSTER_PALETTE = ['#4f9dff', '#38c793', '#f2a03d', '#e06d9c', '#b98cff', '#f2c94c',
+  '#63c2c2', '#e0a458', '#7fa8d0', '#d98d5b', '#7bd0a0', '#9cc88b', '#c98cff', '#5bd1c0', '#ff9e6d', '#6dd3ff'];
 const DOC_TYPES = new Set(['order', 'event', 'dataset']);
-let _fg = null;          // ForceGraph3D instance
-let _graphNodes = [];    // current node list (mutated with x/y/z by the sim)
+const CHILD_CAP = 50;   // max children revealed per expand, to keep it readable
+// Per-type palette for the conversation map (Explore uses cluster colours instead).
+const TYPE_COLORS = {
+  root: '#ffcf5c', hub: '#5bd1c0', department: '#38c793', scheme: '#4f9dff', order: '#f2a03d',
+  event: '#e06d9c', person: '#f2c94c', eligibility: '#e0a458', document_requirement: '#d98d5b',
+  act: '#b98cff', budget_line: '#c98d5b', constituency: '#9cc88b', topic: '#8aa0b4',
+};
 
-// Bigger for hubs (root/council/departments), smaller for leaves.
+let _fg = null;
+let _all = { nodes: {}, edges: [] };   // full graph
+let _adj = {};                          // id -> [{id, rel}] (sorted by neighbour degree)
+let _expanded = new Set();              // currently-expanded node ids
+let _deptOf = {};                       // node id -> owning department id (cluster)
+let _deptColor = {};                    // department id -> colour
+let _graphNodes = [];                   // currently-visible nodes (sim-mutated with x/y/z)
+
 function nodeSize(n) {
-  const base = { root: 14, hub: 10, department: 6, person: 3, scheme: 3 }[n.type] || 2;
-  return base + Math.min(8, (n.degree || 0) * 0.4);
+  const base = { root: 16, hub: 11, department: 7, person: 3, scheme: 3 }[n.type] || 2;
+  return base + Math.min(8, (n.degree || 0) * 0.3);
 }
 
-// Concept-first: hide document nodes (and their now-dangling edges) unless asked.
-function filterConcepts(data, showDocs) {
-  if (showDocs) return data;
-  const nodes = (data.nodes || []).filter((n) => !DOC_TYPES.has(n.type));
-  const ids = new Set(nodes.map((n) => n.id));
-  const edges = (data.edges || []).filter((e) => ids.has(e.from) && ids.has(e.to));
-  return { nodes, edges };
+function nodeColor(n) {
+  if (n.status && n.status !== 'approved') return '#4b5a66';
+  if (n.type === 'root') return '#ffcf5c';
+  if (n.type === 'hub') return '#e8eef2';
+  if (n.type === 'department') return _deptColor[n.id] || '#8aa0b4';
+  const d = _deptOf[n.id];
+  return d ? _deptColor[d] : '#5b6b78';
+}
+
+// Build id maps, adjacency, and assign every node to its nearest department (cluster).
+function buildIndex(data) {
+  _all = { nodes: {}, edges: data.edges || [] };
+  (data.nodes || []).forEach((n) => { _all.nodes[n.id] = n; });
+  const deg = {};
+  _adj = {};
+  for (const e of _all.edges) {
+    (_adj[e.from] = _adj[e.from] || []).push({ id: e.to, rel: e.relationship });
+    (_adj[e.to] = _adj[e.to] || []).push({ id: e.from, rel: e.relationship });
+    deg[e.from] = (deg[e.from] || 0) + 1; deg[e.to] = (deg[e.to] || 0) + 1;
+  }
+  Object.values(_adj).forEach((list) => list.sort((a, b) => (deg[b.id] || 0) - (deg[a.id] || 0)));
+  _all.deg = deg;
+
+  // cluster assignment: multi-source BFS from departments; root/hub/other-depts are barriers
+  _deptOf = {}; _deptColor = {};
+  const depts = Object.values(_all.nodes).filter((n) => n.type === 'department').map((n) => n.id);
+  depts.forEach((d, i) => { _deptColor[d] = CLUSTER_PALETTE[i % CLUSTER_PALETTE.length]; _deptOf[d] = d; });
+  const q = [...depts];
+  while (q.length) {
+    const id = q.shift();
+    for (const nb of (_adj[id] || [])) {
+      const n = _all.nodes[nb.id];
+      if (!n || _deptOf[nb.id] || n.type === 'root' || n.type === 'hub' || n.type === 'department') continue;
+      _deptOf[nb.id] = _deptOf[id];
+      q.push(nb.id);
+    }
+  }
+}
+
+// BFS from root/hubs through expanded nodes → the set of nodes to render.
+function computeVisible() {
+  const visible = new Set();
+  const roots = Object.values(_all.nodes).filter((n) => n.type === 'root' || n.type === 'hub');
+  if (!roots.length) {                         // demo / no backbone: show a capped slice
+    Object.keys(_all.nodes).slice(0, 120).forEach((id) => visible.add(id));
+    return visible;
+  }
+  const q = [];
+  roots.forEach((r) => { visible.add(r.id); q.push(r.id); });
+  while (q.length) {
+    const id = q.shift();
+    if (!_expanded.has(id)) continue;
+    let added = 0;
+    for (const nb of (_adj[id] || [])) {
+      if (added >= CHILD_CAP) break;
+      if (!visible.has(nb.id)) { visible.add(nb.id); q.push(nb.id); added++; }
+    }
+  }
+  return visible;
+}
+
+function visibleGraph() {
+  const vis = computeVisible();
+  _graphNodes = [...vis].map((id) => {
+    const n = _all.nodes[id];
+    const hiddenChildren = (_adj[id] || []).some((nb) => !vis.has(nb.id));
+    return {
+      id, name: n.title || id, type: n.type, status: n.status, summary: n.summary,
+      degree: _all.deg[id] || 0, color: nodeColor(n),
+      expandable: hiddenChildren && !_expanded.has(id),
+    };
+  });
+  const links = _all.edges.filter((e) => vis.has(e.from) && vis.has(e.to))
+    .map((e) => ({ source: e.from, target: e.to, relationship: e.relationship }));
+  return { nodes: _graphNodes, links };
+}
+
+function toggleExpand(id) {
+  if (_expanded.has(id)) _expanded.delete(id); else _expanded.add(id);
+  if (_fg) _fg.graphData(visibleGraph());
+  updateExploreMeta();
+}
+
+// Reveal a node (used by search + drawer neighbours): expand its cluster + itself, fly to it.
+function revealNode(id) {
+  const dept = _deptOf[id];
+  if (dept) _expanded.add(dept);
+  _expanded.add(id);
+  if (_fg) _fg.graphData(visibleGraph());
+  updateExploreMeta();
+  setTimeout(() => {
+    const nn = _graphNodes.find((n) => n.id === id);
+    if (nn) { flyTo(nn); openNodeDrawer(nn); }
+  }, 450);
 }
 
 function openExplore() { state.live = null; state.screen = 'explore'; render(); }
@@ -518,7 +613,7 @@ function openExplore() { state.live = null; state.screen = 'explore'; render(); 
 function renderExplore() {
   return `<main class="explore-page">
     <div class="explore-toolbar">
-      <div class="explore-title"><span class="map-kicker">KNOWLEDGE UNIVERSE</span><strong>Explore all verified topics</strong></div>
+      <div class="explore-title"><span class="map-kicker">KNOWLEDGE UNIVERSE</span><strong>Explore verified topics</strong></div>
       <input id="explore-search" placeholder="Find a topic…" aria-label="Find a topic" />
       <label class="explore-toggle"><input type="checkbox" id="explore-docs" /> Show documents</label>
       <label class="explore-toggle"><input type="checkbox" id="explore-pending" /> Include unreviewed</label>
@@ -538,18 +633,26 @@ async function loadGraphData(status) {
 }
 
 function demoGraphData() {
-  const nodes = Object.entries(graph.nodes).map(([id, n]) => ({
-    id, title: n.title, type: n.type, status: 'approved', summary: n.summary,
-    degree: graph.edges.filter((e) => e[0] === id || e[1] === id).length,
-  }));
+  const nodes = Object.entries(graph.nodes).map(([id, n]) => ({ id, title: n.title, type: n.type, status: 'approved', summary: n.summary }));
   const edges = graph.edges.map(([from, to, rel]) => ({ from, to, relationship: rel }));
   return { nodes, edges };
 }
 
-function mapGraph(data) {
-  _graphNodes = (data.nodes || []).map((n) => ({ id: n.id, name: n.title || n.id, type: n.type, status: n.status, degree: n.degree || 0, summary: n.summary }));
-  const links = (data.edges || []).map((e) => ({ source: e.from, target: e.to, relationship: e.relationship }));
-  return { nodes: _graphNodes, links };
+function filterDocs(data) {
+  const nodes = (data.nodes || []).filter((n) => !DOC_TYPES.has(n.type));
+  const ids = new Set(nodes.map((n) => n.id));
+  return { nodes, edges: (data.edges || []).filter((e) => ids.has(e.from) && ids.has(e.to)) };
+}
+
+async function loadIndex() {
+  const pending = document.getElementById('explore-pending')?.checked;
+  const showDocs = document.getElementById('explore-docs')?.checked;
+  let data = await loadGraphData(pending ? 'all' : 'approved');
+  if (!showDocs) data = filterDocs(data);
+  buildIndex(data);
+  // start expanded at the root(s) so departments + hubs show; expand hubs too if no root
+  _expanded = new Set(Object.values(_all.nodes).filter((n) => n.type === 'root').map((n) => n.id));
+  if (!_expanded.size) Object.values(_all.nodes).filter((n) => n.type === 'hub').forEach((n) => _expanded.add(n.id));
 }
 
 async function initExplorer() {
@@ -558,63 +661,55 @@ async function initExplorer() {
   if (!el || el.__built) return;
   el.__built = true;
   try {
-    await refreshExplorer(true);
+    await loadIndex();
+    buildExplorer(el);
     wireExploreToolbar();
+    updateExploreMeta();
   } catch (err) {
     el.innerHTML = `<p class="explore-empty">Could not load graph: ${esc(err.message)}</p>`;
   }
 }
 
-// Loads + filters the graph and either builds the 3D view or updates it in place.
-async function refreshExplorer(rebuild) {
-  const pending = document.getElementById('explore-pending')?.checked;
-  const showDocs = document.getElementById('explore-docs')?.checked;
-  const data = filterConcepts(await loadGraphData(pending ? 'all' : 'approved'), showDocs);
-  const el = document.getElementById('graph-explorer');
-  if (rebuild) buildExplorer(el, data);
-  else if (_fg) _fg.graphData(mapGraph(data));
-  updateExploreMeta(data);
-}
-
-function buildExplorer(el, data) {
+function buildExplorer(el) {
   _fg = window.ForceGraph3D()(el)
     .backgroundColor('#08131f')
-    .graphData(mapGraph(data))
+    .graphData(visibleGraph())
     .nodeVal(nodeSize)
-    .nodeColor((n) => (n.status && n.status !== 'approved' ? '#5b6b78' : (TYPE_COLORS[n.type] || '#8aa0b4')))
+    .nodeColor((n) => n.color)
+    .nodeOpacity(0.95)
     .nodeThreeObjectExtend(true)
     .nodeThreeObject((n) => {
       if (typeof window.SpriteText !== 'function') return null;
-      const s = new window.SpriteText(n.name);
-      s.color = n.status && n.status !== 'approved' ? '#9fb0bd' : '#e9f2f8';
-      s.textHeight = { root: 9, hub: 7, department: 5 }[n.type] || Math.min(6, 3 + (n.degree || 0) * 0.3);
+      const s = new window.SpriteText(n.expandable ? `${n.name}  ⊕` : n.name);
+      s.color = '#e9f2f8';
+      s.textHeight = { root: 9, hub: 7, department: 5 }[n.type] || 3.4;
       s.material.depthWrite = false;
       return s;
     })
-    .linkColor(() => 'rgba(150,180,205,0.22)')
-    .linkLabel('relationship')
-    .linkDirectionalArrowLength(2.4)
+    .linkColor(() => 'rgba(150,180,205,0.20)')
+    .linkDirectionalArrowLength(2.2)
     .linkDirectionalArrowRelPos(1)
-    .onNodeClick((node) => { flyTo(node); openNodeDrawer(node); })
+    .onNodeClick((node) => { flyTo(node); toggleExpand(node.id); openNodeDrawer(node); })
     .width(el.clientWidth)
     .height(el.clientHeight);
 }
 
 function flyTo(node) {
   if (!_fg || node.x === undefined) return;
-  const dist = 70;
+  const dist = 60;
   const ratio = 1 + dist / Math.hypot(node.x, node.y, node.z || 0.001);
-  _fg.cameraPosition({ x: node.x * ratio, y: node.y * ratio, z: (node.z || 0) * ratio }, node, 1400);
+  _fg.cameraPosition({ x: node.x * ratio, y: node.y * ratio, z: (node.z || 0) * ratio }, node, 1200);
 }
 
-function updateExploreMeta(data) {
+function updateExploreMeta() {
   const count = document.getElementById('explore-count');
-  if (count) count.textContent = `${(data.nodes || []).length} topics · ${(data.edges || []).length} links`;
+  if (count) count.textContent = `${_graphNodes.length} shown · ${Object.keys(_all.nodes).length} total`;
   const legend = document.getElementById('explore-legend');
-  if (legend) {
-    const types = [...new Set((data.nodes || []).map((n) => n.type))];
-    legend.innerHTML = types.map((t) => `<span><i style="background:${TYPE_COLORS[t] || '#8aa0b4'}"></i>${esc(t || 'topic')}</span>`).join('');
-  }
+  if (legend) legend.innerHTML =
+    `<span><i style="background:#ffcf5c"></i>root</span>` +
+    `<span><i style="background:#e8eef2"></i>hub</span>` +
+    `<span>each colour = a department cluster</span>` +
+    `<span>⊕ click a node to expand · click again to collapse</span>`;
 }
 
 function wireExploreToolbar() {
@@ -622,14 +717,15 @@ function wireExploreToolbar() {
   if (search) search.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     const q = search.value.trim().toLowerCase();
-    const hit = _graphNodes.find((n) => (n.name || '').toLowerCase().includes(q));
-    if (hit) { flyTo(hit); openNodeDrawer(hit); }
+    if (!q) return;
+    const hit = Object.values(_all.nodes).find((n) => (n.title || n.id).toLowerCase().includes(q));
+    if (hit) revealNode(hit.id);
   });
-  const refresh = () => refreshExplorer(false).catch(() => {});
+  const reload = async () => { try { await loadIndex(); if (_fg) _fg.graphData(visibleGraph()); updateExploreMeta(); } catch (e) { /* keep */ } };
   const pending = document.getElementById('explore-pending');
-  if (pending) pending.addEventListener('change', refresh);
+  if (pending) pending.addEventListener('change', reload);
   const docs = document.getElementById('explore-docs');
-  if (docs) docs.addEventListener('change', refresh);
+  if (docs) docs.addEventListener('change', reload);
 }
 
 async function openNodeDrawer(node) {
@@ -637,9 +733,11 @@ async function openNodeDrawer(node) {
   if (!drawer) return;
   drawer.classList.remove('closed');
   const badge = node.status && node.status !== 'approved' ? ` · ${esc(node.status)}` : '';
+  const expandHint = node.expandable ? '<p class="muted">Click the node to expand its connections.</p>' : '';
   drawer.innerHTML = `<button class="drawer-close" id="drawer-close">✕</button>
     <span class="drawer-type">${esc(node.type || 'topic')}${badge}</span>
     <h3>${esc(node.name || node.id)}</h3>
+    ${expandHint}
     <div id="drawer-body"><p class="muted">Loading…</p></div>`;
   document.getElementById('drawer-close').onclick = () => drawer.classList.add('closed');
   const body = document.getElementById('drawer-body');
@@ -649,10 +747,7 @@ async function openNodeDrawer(node) {
     const res = await fetch(`${API_BASE_URL}/api/node?id=${encodeURIComponent(node.id)}`);
     const info = await res.json();
     body.innerHTML = renderDrawerBody(info);
-    body.querySelectorAll('[data-node-explore]').forEach((b) => { b.onclick = () => {
-      const nn = _graphNodes.find((x) => x.id === b.dataset.nodeExplore);
-      if (nn) { flyTo(nn); openNodeDrawer(nn); }
-    }; });
+    body.querySelectorAll('[data-node-explore]').forEach((b) => { b.onclick = () => revealNode(b.dataset.nodeExplore); });
     body.querySelectorAll('[data-query]').forEach((b) => { b.onclick = () => runQuery(b.dataset.query); });
   } catch (err) {
     body.innerHTML = `<p class="muted">Details unavailable (${esc(err.message)}).</p>`;
@@ -668,7 +763,7 @@ function renderDrawerBody(info) {
     `<div class="drawer-source">${icon('file')} <span>${esc(c.document || 'Source')}${c.page ? `, p.${esc(c.page)}` : ''}</span></div>`).join('');
   return `${n.summary ? `<p>${esc(n.summary)}</p>` : ''}
     ${details ? `<ul class="drawer-details">${details}</ul>` : ''}
-    ${neighbors ? `<h4>Connected topics</h4><div class="drawer-neighbors">${neighbors}</div>` : ''}
+    ${neighbors ? `<h4>Connected topics — click to explore</h4><div class="drawer-neighbors">${neighbors}</div>` : ''}
     ${cites ? `<h4>Source artefacts</h4>${cites}` : ''}
     ${n.title ? `<button class="drawer-ask" data-query="${esc(n.title)}">Ask about this ${icon('arrow')}</button>` : ''}`;
 }
