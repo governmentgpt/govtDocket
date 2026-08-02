@@ -60,3 +60,16 @@
 
 /* workspace map fills the full rail (no whitespace below the 3D graph) */
 .map-rail .knowledge-map{height:100%;min-height:0}
+/* clickable citation chips */
+.citation-strip .citation-chip{font-size:10px;font-weight:700;color:#996e23;background:var(--gold-soft);padding:5px 8px;border-radius:5px;display:inline-flex;align-items:center;gap:5px;border:0;cursor:pointer}
+.citation-strip .citation-chip:hover{filter:brightness(.96)}
+.citation-strip .citation-chip svg{width:13px}
+/* source viewer overlay */
+.source-overlay{position:fixed;inset:0;z-index:50;background:rgba(10,20,30,.55);display:flex;align-items:center;justify-content:center;padding:20px}
+.source-modal{background:#fff;max-width:640px;width:100%;max-height:82vh;overflow:auto;border-radius:14px;padding:26px 24px;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.source-close{position:absolute;top:12px;right:14px;border:0;background:transparent;font-size:16px;color:var(--muted);cursor:pointer}
+.source-modal h3{font:600 18px var(--serif);color:var(--navy);margin:10px 0 0}
+.source-meta{color:var(--muted);font-size:12px;margin:6px 0 14px}
+.source-text{font-size:14px;line-height:1.7;color:#27343d;white-space:pre-wrap}
+.source-open{display:inline-flex;align-items:center;gap:6px;margin-top:16px;color:var(--navy);font-weight:700;font-size:13px;text-decoration:none}
+.source-open svg{width:15px}

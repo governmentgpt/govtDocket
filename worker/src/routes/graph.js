@@ -83,6 +83,18 @@ function demoHome() {
   };
 }
 
+// ── Feedback capture ─────────────────────────────────────────────────────────
+export async function handleFeedback(c) {
+  const b = await c.req.json().catch(() => ({}));
+  const URL = c.env.SUPABASE_URL;
+  const KEY = c.env.SUPABASE_ANON_KEY;
+  if (!URL || !KEY) return c.json({ ok: true });   // demo mode: accept, no-op
+  const res = await supabaseRpc(URL, KEY, 'add_feedback', {
+    p_query: b.query || '', p_answer: b.answer || '', p_rating: b.rating || '', p_detail: b.detail || '',
+  });
+  return c.json({ ok: !res.error });
+}
+
 // ── Supabase RPC helper (native fetch; no supabase-js) ───────────────────────
 async function supabaseRpc(url, anonKey, fnName, body) {
   const res = await fetch(`${url}/rest/v1/rpc/${fnName}`, {

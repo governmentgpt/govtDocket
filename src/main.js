@@ -114,7 +114,37 @@ const state = {
   turns: [],   // conversational history: [{ query, answer, citations, graph, loading }]
   sessionGraph: { nodes: {}, edges: {} },   // cumulative map across the conversation
   home: null,  // { departments, schemes, recent } from /api/home
+  sourceView: null,   // citation currently shown in the source viewer overlay
 };
+
+// Source viewer overlay — shows a citation's original passage + link to the doc.
+function renderSourceOverlay() {
+  const c = state.sourceView;
+  if (!c) return '';
+  const meta = [c.authority, c.page ? `Page ${c.page}` : '', c.section].filter(Boolean).map(esc).join(' · ');
+  return `<div class="source-overlay" data-src-close><div class="source-modal">
+    <button class="source-close" data-src-close aria-label="Close">✕</button>
+    <span class="drawer-type">SOURCE</span>
+    <h3>${esc(c.document || 'Source')}</h3>
+    ${meta ? `<div class="source-meta">${meta}</div>` : ''}
+    <p class="source-text">${esc(c.text || 'The original passage text is not available for this citation.')}</p>
+    ${c.url ? `<a class="source-open" href="${esc(c.url)}" target="_blank" rel="noopener">Open original document ${icon('external')}</a>` : ''}
+  </div></div>`;
+}
+
+async function sendFeedback(idx, rating) {
+  const turn = state.turns[idx];
+  if (!turn) return;
+  const row = document.getElementById(`fb-${idx}`);
+  if (row) row.innerHTML = '<span>Thanks — your feedback was recorded.</span>';
+  if (!API_BASE_URL) return;
+  try {
+    await fetch(`${API_BASE_URL}/api/feedback`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: turn.query, answer: turn.answer, rating }),
+    });
+  } catch (e) { /* non-blocking */ }
+}
 
 // ── Landing page data (real when the API is configured, else demo) ─────────────
 async function loadHome() {
@@ -307,13 +337,13 @@ function renderSources(node) {
   return `<section class="source-panel"><div class="panel-label">SOURCE EVIDENCE</div><div class="source-status"><span class="status-dot"></span><span>${esc(node.status)}</span></div>${node.sources.map(([name, desc]) => `<div class="source-card"><div class="source-icon">${icon('file')}</div><div><b>${esc(name)}</b><p>${esc(desc)}</p></div><button title="Open source">${icon('external')}</button></div>`).join('')}<p class="source-note">Production nodes show the original source, exact citation, review status, and capture time.</p></section>`;
 }
 
-function renderTurn(turn, isLatest) {
+function renderTurn(turn, idx, isLatest) {
   const user = `<div class="user-message">${esc(turn.query)}</div>`;
   if (turn.loading) {
     return `${user}<article class="answer-card"><div class="answer-head"><span class="answer-mark">W</span><div><b>WikiGov verified answer</b><small>Retrieving verified sources…</small></div></div><p class="answer-lead">Searching the approved knowledge base…</p></article>`;
   }
-  const citeStrip = (turn.citations || []).slice(0, 8).map((c) =>
-    `<span>${icon('file')} ${esc(c.document || 'Source')}${c.page ? `, p.${esc(c.page)}` : ''}</span>`
+  const citeStrip = (turn.citations || []).slice(0, 8).map((c, j) =>
+    `<button class="citation-chip" data-cite="${idx}:${j}">${icon('file')} ${esc(c.document || 'Source')}${c.page ? `, p.${esc(c.page)}` : ''}</button>`
   ).join('');
   const related = isLatest ? (turn.graph?.nodes || []).slice(0, 6).map((n) =>
     `<button data-query="${esc(n.title || n.id)}">${esc(n.title || n.id)}</button>`
@@ -321,7 +351,7 @@ function renderTurn(turn, isLatest) {
   return `${user}<article class="answer-card"><div class="answer-head"><span class="answer-mark">W</span><div><b>WikiGov verified answer</b><small>Grounded in approved Tamil Nadu sources</small></div><span class="answer-badge">${icon('info')} Live</span></div>
       <p class="answer-lead">${esc(turn.answer || 'No verified information was found.')}</p>
       ${citeStrip ? `<div class="citation-strip">${citeStrip}</div>` : ''}
-      <div class="answer-feedback"><span>Is this helpful?</span><button>Helpful</button><button>Needs improvement</button><button class="report">Report issue</button></div>
+      <div class="answer-feedback" id="fb-${idx}"><span>Is this helpful?</span><button data-fb="helpful" data-turn="${idx}">Helpful</button><button data-fb="needs improvement" data-turn="${idx}">Needs improvement</button><button class="report" data-fb="report issue" data-turn="${idx}">Report issue</button></div>
     </article>
     ${related ? `<div class="followups"><span>Related</span>${related}</div>` : ''}`;
 }
@@ -329,7 +359,7 @@ function renderTurn(turn, isLatest) {
 function renderWorkspace() {
   const latest = state.turns[state.turns.length - 1];
   const chat = state.turns.length
-    ? state.turns.map((t, i) => renderTurn(t, i === state.turns.length - 1)).join('')
+    ? state.turns.map((t, i) => renderTurn(t, i, i === state.turns.length - 1)).join('')
     : `<div class="empty-chat">Ask a question to begin exploring verified Government knowledge.</div>`;
   const railHistory = state.turns.length
     ? state.turns.map((t, i) => `<button class="conversation ${i === state.turns.length - 1 ? 'active' : ''}"><span class="conversation-icon">${icon('search')}</span><span>${esc((t.query || '').slice(0, 40))}</span></button>`).join('')
@@ -394,7 +424,7 @@ function screenBody() {
 
 let _prevScreen = null;
 function render() {
-  document.getElementById('app').innerHTML = `${renderHeader()}${screenBody()}`;
+  document.getElementById('app').innerHTML = `${renderHeader()}${screenBody()}${renderSourceOverlay()}`;
   if (state.screen !== _prevScreen) { window.scrollTo(0, 0); _prevScreen = state.screen; }
   bindEvents();
   try { initGraph3D(); } catch (e) { /* graph errors must not block the UI */ }
@@ -665,6 +695,16 @@ function bindEvents() {
   document.querySelectorAll('[data-node]').forEach((el) => el.addEventListener('click', () => { state.selected = el.dataset.node; render(); }));
   document.querySelectorAll('.graph-node').forEach((el) => { el.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); state.selected = el.dataset.node; render(); } }); });
   const mapToggle = $('[data-toggle-map]'); if (mapToggle) mapToggle.addEventListener('click', () => { state.mapOpen = !state.mapOpen; render(); });
+  // Clickable citations → source viewer
+  document.querySelectorAll('[data-cite]').forEach((el) => el.addEventListener('click', () => {
+    const [i, j] = el.dataset.cite.split(':').map(Number);
+    const c = state.turns[i] && state.turns[i].citations && state.turns[i].citations[j];
+    if (c) { state.sourceView = c; render(); }
+  }));
+  document.querySelectorAll('[data-src-close]').forEach((el) => el.addEventListener('click', () => { state.sourceView = null; render(); }));
+  const srcModal = $('.source-modal'); if (srcModal) srcModal.addEventListener('click', (e) => e.stopPropagation());
+  // Feedback capture
+  document.querySelectorAll('[data-fb]').forEach((el) => el.addEventListener('click', () => sendFeedback(Number(el.dataset.turn), el.dataset.fb)));
 }
 
 render();

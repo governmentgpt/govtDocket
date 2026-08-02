@@ -66,6 +66,7 @@ export async function handleQuery(c) {
     passages.push({
       id: r.passage_id, text: r.text_content, page: r.page_number,
       section: r.section_label, docTitle: r.document_title, authority: r.issuing_authority,
+      url: r.document_url,
     });
     if (r.node_id && !nodesMap[r.node_id]) {
       nodesMap[r.node_id] = { id: r.node_id, type: r.node_type || 'topic', title: r.node_title, summary: '', details: [] };
@@ -141,7 +142,7 @@ export async function handleQuery(c) {
 
   return c.json({
     answer,
-    citations: top.map((p) => ({ document: p.docTitle, authority: p.authority, page: p.page, section: p.section })),
+    citations: top.map((p) => ({ document: p.docTitle, authority: p.authority, page: p.page, section: p.section, text: p.text, url: p.url })),
     graph: { nodes: Object.values(nodesMap), edges: Object.values(edgesMap) },
   });
 }
