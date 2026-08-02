@@ -22,6 +22,9 @@ export async function handleQuery(c) {
   const LLM_API_KEY  = c.env.LLM_API_KEY;
   const LLM_MODEL    = c.env.LLM_MODEL    || 'z-ai/glm-5.2';
   const LLM_BASE_URL = c.env.LLM_BASE_URL || 'https://integrate.api.nvidia.com/v1';
+  // Embeddings for semantic retrieval (multilingual → Tamil). Reuses LLM key.
+  const EMBED_MODEL    = c.env.EMBED_MODEL    || 'baai/bge-m3';
+  const EMBED_BASE_URL = c.env.EMBED_BASE_URL || LLM_BASE_URL;
 
   const body = await c.req.json().catch(() => ({}));
   const queryText = c.req.query('q') || body.query || '';
@@ -56,21 +59,31 @@ export async function handleQuery(c) {
     query_text: ftsQuery,
     match_count: 8,
   });
-  if (ftsRes.error) {
-    console.error('[RAG] search_passages error:', ftsRes.error);
-  } else {
-    for (const r of (ftsRes.data || [])) {
-      if (seen.has(r.passage_id)) continue;
-      seen.add(r.passage_id);
-      passages.push({
-        id: r.passage_id, text: r.text_content, page: r.page_number,
-        section: r.section_label, docTitle: r.document_title, authority: r.issuing_authority,
-      });
-      if (r.node_id && !nodesMap[r.node_id]) {
-        nodesMap[r.node_id] = { id: r.node_id, type: r.node_type || 'topic', title: r.node_title, summary: '', details: [] };
-      }
+  const addPassageRow = (r) => {
+    if (seen.has(r.passage_id)) return;
+    seen.add(r.passage_id);
+    passages.push({
+      id: r.passage_id, text: r.text_content, page: r.page_number,
+      section: r.section_label, docTitle: r.document_title, authority: r.issuing_authority,
+    });
+    if (r.node_id && !nodesMap[r.node_id]) {
+      nodesMap[r.node_id] = { id: r.node_id, type: r.node_type || 'topic', title: r.node_title, summary: '', details: [] };
     }
+  };
+
+  // ── STEP 1b: Semantic retrieval — embed the query, vector-match passages ─────
+  // Runs first so meaning-based hits (incl. Tamil / paraphrases) lead; FTS fills in.
+  const queryVec = await embedQuery(queryText, LLM_API_KEY, EMBED_BASE_URL, EMBED_MODEL);
+  if (queryVec) {
+    const vecRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'match_passages', {
+      query_embedding: queryVec, match_count: 8,
+    });
+    if (!vecRes.error) for (const r of (vecRes.data || [])) addPassageRow(r);
+    else console.error('[RAG] match_passages error:', vecRes.error);
   }
+
+  if (ftsRes.error) console.error('[RAG] search_passages error:', ftsRes.error);
+  else for (const r of (ftsRes.data || [])) addPassageRow(r);
 
   // ── STEP 2: Entity/graph context — best-effort, powers the 3D knowledge map ──
   const aliasRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'match_node_aliases', {
@@ -141,6 +154,22 @@ async function supabaseRpc(url, anonKey, fnName, body) {
 
   const data = await res.json();
   return { data, error: null };
+}
+
+// ── Query embedding for semantic retrieval ────────────────────────────────────
+// Returns a pgvector literal string "[..]" or null (→ retrieval falls back to FTS).
+async function embedQuery(text, apiKey, baseUrl, model) {
+  if (!apiKey || !text) return null;
+  try {
+    const res = await fetch(`${baseUrl}/embeddings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model, input: [text.slice(0, 8000)], input_type: 'query' }),
+    });
+    if (!res.ok) { console.error('[RAG] embed error:', res.status); return null; }
+    const v = (await res.json()).data?.[0]?.embedding;
+    return Array.isArray(v) ? `[${v.join(',')}]` : null;
+  } catch (e) { console.error('[RAG] embed failed:', e.message); return null; }
 }
 
 // ── LLM grounded synthesis ────────────────────────────────────────────────────

@@ -29,3 +29,6 @@ RAG_ALIAS_LIMIT = "5"
 # LLM synthesis — any OpenAI-compatible endpoint. Override in the dashboard if needed.
 LLM_MODEL = "z-ai/glm-5.2"
 LLM_BASE_URL = "https://integrate.api.nvidia.com/v1"
+# Embeddings for semantic retrieval — multilingual (Tamil), 1024-dim (matches migration 010).
+EMBED_MODEL = "baai/bge-m3"
+# EMBED_BASE_URL defaults to LLM_BASE_URL; set only if embeddings live elsewhere.
