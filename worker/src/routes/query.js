@@ -23,7 +23,7 @@ export async function handleQuery(c) {
   const LLM_MODEL    = c.env.LLM_MODEL    || 'z-ai/glm-5.2';
   const LLM_BASE_URL = c.env.LLM_BASE_URL || 'https://integrate.api.nvidia.com/v1';
   // Embeddings for semantic retrieval (multilingual → Tamil). Reuses LLM key.
-  const EMBED_MODEL    = c.env.EMBED_MODEL    || 'baai/bge-m3';   // 1024-dim, multilingual
+  const EMBED_MODEL    = c.env.EMBED_MODEL    || 'jina-embeddings-v3';   // 1024-dim, multilingual
   const EMBED_BASE_URL = c.env.EMBED_BASE_URL || LLM_BASE_URL;
   const EMBED_API_KEY  = c.env.EMBED_API_KEY  || LLM_API_KEY;     // separate key if embeddings are on another provider
 

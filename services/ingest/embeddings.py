@@ -7,8 +7,8 @@ why it matches the vector(1024) columns in migration 010. Reuses LLM_API_KEY.
 
 import os
 
-EMBED_BASE_URL = os.environ.get("EMBED_BASE_URL", "https://integrate.api.nvidia.com/v1")
-EMBED_MODEL    = os.environ.get("EMBED_MODEL", "baai/bge-m3")
+EMBED_BASE_URL = os.environ.get("EMBED_BASE_URL", "https://api.jina.ai/v1")
+EMBED_MODEL    = os.environ.get("EMBED_MODEL", "jina-embeddings-v3")   # 1024-dim, multilingual
 EMBED_KEY      = os.environ.get("EMBED_API_KEY") or os.environ.get("LLM_API_KEY", "")
 
 
