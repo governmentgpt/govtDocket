@@ -23,7 +23,7 @@ export async function handleQuery(c) {
   const LLM_MODEL    = c.env.LLM_MODEL    || 'z-ai/glm-5.2';
   const LLM_BASE_URL = c.env.LLM_BASE_URL || 'https://integrate.api.nvidia.com/v1';
   // Embeddings for semantic retrieval (multilingual → Tamil). Reuses LLM key.
-  const EMBED_MODEL    = c.env.EMBED_MODEL    || 'baai/bge-m3';
+  const EMBED_MODEL    = c.env.EMBED_MODEL    || 'baai/bge-m3';   // 1024-dim, multilingual
   const EMBED_BASE_URL = c.env.EMBED_BASE_URL || LLM_BASE_URL;
 
   const body = await c.req.json().catch(() => ({}));
@@ -176,7 +176,7 @@ async function embedQuery(text, apiKey, baseUrl, model) {
     const res = await fetch(`${baseUrl}/embeddings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, input: [text.slice(0, 8000)], input_type: 'query', truncate: 'END' }),
+      body: JSON.stringify({ model, input: [text.slice(0, 8000)], encoding_format: 'float', truncate: 'END' }),
     });
     if (!res.ok) { console.error('[RAG] embed error:', res.status); return null; }
     const v = (await res.json()).data?.[0]?.embedding;

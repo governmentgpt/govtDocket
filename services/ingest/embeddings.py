@@ -8,7 +8,7 @@ why it matches the vector(1024) columns in migration 010. Reuses LLM_API_KEY.
 import os
 
 EMBED_BASE_URL = os.environ.get("EMBED_BASE_URL", "https://integrate.api.nvidia.com/v1")
-EMBED_MODEL    = os.environ.get("EMBED_MODEL", "nvidia/llama-3.2-nv-embedqa-1b-v2")
+EMBED_MODEL    = os.environ.get("EMBED_MODEL", "baai/bge-m3")
 EMBED_KEY      = os.environ.get("EMBED_API_KEY") or os.environ.get("LLM_API_KEY", "")
 
 
@@ -21,8 +21,9 @@ def embed(texts, input_type="passage"):
         print("[embed] no API key — export LLM_API_KEY (your NVIDIA key) or EMBED_API_KEY")
         return [None] * len(texts)
     import httpx
+    # bge-m3 is symmetric (no input_type); needs encoding_format + truncate.
     payload = {"model": EMBED_MODEL, "input": [t[:8000] for t in texts],
-               "input_type": input_type, "truncate": "END"}
+               "encoding_format": "float", "truncate": "END"}
     try:
         with httpx.Client(timeout=90) as client:
             resp = client.post(
