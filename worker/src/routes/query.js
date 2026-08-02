@@ -164,7 +164,7 @@ async function embedQuery(text, apiKey, baseUrl, model) {
     const res = await fetch(`${baseUrl}/embeddings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, input: [text.slice(0, 8000)], input_type: 'query' }),
+      body: JSON.stringify({ model, input: [text.slice(0, 8000)], input_type: 'query', truncate: 'END' }),
     });
     if (!res.ok) { console.error('[RAG] embed error:', res.status); return null; }
     const v = (await res.json()).data?.[0]?.embedding;

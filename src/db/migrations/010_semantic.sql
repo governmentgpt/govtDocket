@@ -3,15 +3,16 @@
 -- Adds embeddings to passages + node versions so retrieval works on meaning
 -- (natural-language + Tamil), and enables similarity-based entity dedup.
 --
--- Dimension 1024 = BAAI/bge-m3 (multilingual). If you use a different embedding
--- model, change vector(1024) to its dimension.
+-- Dimension 2048 = nvidia/llama-3.2-nv-embedqa-1b-v2 (hosted on NVIDIA, multilingual
+-- incl. Tamil). If you use a different embedding model, change vector(2048) to its
+-- dimension (a mismatch shows up as an insert error stating the expected size).
 -- ============================================================================
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
-ALTER TABLE passages      ADD COLUMN IF NOT EXISTS embedding vector(1024);
-ALTER TABLE node_versions ADD COLUMN IF NOT EXISTS embedding vector(1024);
+ALTER TABLE passages      ADD COLUMN IF NOT EXISTS embedding vector(2048);
+ALTER TABLE node_versions ADD COLUMN IF NOT EXISTS embedding vector(2048);
 
 -- ANN indexes (cosine). HNSW = fast, good recall.
 CREATE INDEX IF NOT EXISTS idx_passages_embedding
