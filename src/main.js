@@ -222,8 +222,14 @@ function demoSubgraph(nodeId) {
 async function runQuery(query) {
   const turn = { query, answer: '', citations: [], graph: { nodes: [], edges: [] }, loading: true };
   state.turns.push(turn);
+  const idx = state.turns.length - 1;
+  const onWorkspace = state.screen === 'workspace' && document.getElementById('chat-scroll');
   state.screen = 'workspace';
-  render();
+  if (onWorkspace) appendTurnDom(turn, idx);   // incremental — preserves scroll & graph
+  else render();                                // build the shell (renders this turn too)
+  scrollToTurn(idx);
+
+  const finish = () => { turn.loading = false; updateTurnDom(turn, idx); syncWorkspaceGraph(); scrollToTurn(idx); };
 
   if (!API_BASE_URL) {
     const nodeId = resolveVectorlessRAG(query);
@@ -232,8 +238,7 @@ async function runQuery(query) {
     turn.citations = (node.sources || []).map(([name]) => ({ document: name }));
     turn.graph = demoSubgraph(nodeId);
     mergeSession(turn.graph);
-    turn.loading = false;
-    return render();
+    return finish();
   }
   try {
     const history = state.turns.slice(0, -1).slice(-3)
@@ -246,8 +251,7 @@ async function runQuery(query) {
   } catch (err) {
     turn.answer = `The knowledge service is unavailable right now (${err.message}).`;
   } finally {
-    turn.loading = false;
-    render();
+    finish();
   }
 }
 
@@ -360,8 +364,8 @@ function renderTurn(turn, idx, isLatest) {
 function renderWorkspace() {
   const latest = state.turns[state.turns.length - 1];
   const chat = state.turns.length
-    ? state.turns.map((t, i) => renderTurn(t, i, i === state.turns.length - 1)).join('')
-    : `<div class="empty-chat">Ask a question to begin exploring verified Government knowledge.</div>`;
+    ? state.turns.map((t, i) => `<div class="turn" id="turn-${i}">${renderTurn(t, i, i === state.turns.length - 1)}</div>`).join('')
+    : `<div class="empty-chat" id="empty-chat">Ask a question to begin exploring verified Government knowledge.</div>`;
   const railHistory = state.turns.length
     ? state.turns.map((t, i) => `<button class="conversation ${i === state.turns.length - 1 ? 'active' : ''}"><span class="conversation-icon">${icon('search')}</span><span>${esc((t.query || '').slice(0, 40))}</span></button>`).join('')
     : '<button class="conversation active"><span>New conversation</span></button>';
@@ -376,25 +380,33 @@ function renderWorkspace() {
   </main>`;
 }
 
-// Renders the live subgraph into a WebGL 3D force graph (loaded via CDN in
-// index.html). Silently no-ops if the library or container is unavailable.
-function initGraph3D() {
-  if (state.screen !== 'workspace' || typeof window.ForceGraph3D !== 'function') return;
-  const el = document.getElementById('graph3d');
-  if (!el || el.__built) return;
-  el.__built = true;
-  // Cumulative session map: this turn's nodes are highlighted; earlier ones stay dimmed.
+// Cumulative conversation map data (this turn highlighted, earlier dimmed).
+function workspaceGraphData() {
   const latest = state.turns[state.turns.length - 1];
-  const recent = new Set((latest?.graph?.nodes || []).map((n) => n.id));
+  const recent = new Set((latest && latest.graph && latest.graph.nodes || []).map((n) => n.id));
   const nodes = Object.values(state.sessionGraph.nodes).map((n) => ({ id: n.id, name: n.title || n.id, type: n.type, recent: recent.has(n.id) }));
   const ids = new Set(nodes.map((n) => n.id));
   const links = Object.values(state.sessionGraph.edges)
     .filter((e) => ids.has(e.from) && ids.has(e.to))
-    .map((e) => ({ source: e.from, target: e.to, label: e.relationship }));
-  if (!nodes.length) { el.innerHTML = '<p class="map-hint" style="padding:1rem">Ask a question to populate the map.</p>'; return; }
-  const fg = window.ForceGraph3D()(el)
+    .map((e) => ({ source: e.from, target: e.to }));
+  return { nodes, links };
+}
+
+let _wsFg = null;   // persistent workspace ForceGraph3D instance
+
+// Create-or-UPDATE the workspace graph. Persistent instance → stable layout,
+// new turns' nodes ease in via .graphData() instead of a full re-init.
+function syncWorkspaceGraph() {
+  if (state.screen !== 'workspace' || typeof window.ForceGraph3D !== 'function') return;
+  const el = document.getElementById('graph3d');
+  if (!el) return;
+  const data = workspaceGraphData();
+  if (el.__wsFg && _wsFg) { _wsFg.graphData(data); return; }   // update in place (same DOM)
+  if (!data.nodes.length) { el.innerHTML = '<p class="map-hint" style="padding:1rem">Ask a question to populate the map.</p>'; return; }
+  el.innerHTML = '';
+  _wsFg = window.ForceGraph3D()(el)
     .backgroundColor('rgba(0,0,0,0)')
-    .graphData({ nodes, links })
+    .graphData(data)
     .nodeVal((n) => (n.recent ? 6 : 2))
     .nodeColor((n) => (n.recent ? (TYPE_COLORS[n.type] || '#8aa0b4') : '#4b5a66'))
     .nodeThreeObjectExtend(true)
@@ -407,14 +419,64 @@ function initGraph3D() {
       return s;
     })
     .linkColor(() => 'rgba(150,180,205,0.3)')
-    .linkLabel('label')
     .linkDirectionalArrowLength(2.5).linkDirectionalArrowRelPos(1)
     .onNodeClick((n) => {
       const dist = 60; const r = 1 + dist / Math.hypot(n.x, n.y, n.z || 1);
-      fg.cameraPosition({ x: n.x * r, y: n.y * r, z: (n.z || 0) * r }, n, 1000);
+      _wsFg.cameraPosition({ x: n.x * r, y: n.y * r, z: (n.z || 0) * r }, n, 1000);
     })
     .width(el.clientWidth)
     .height(el.clientHeight || 340);
+  el.__wsFg = true;
+}
+
+// ── Incremental chat DOM (no full re-render → scroll preserved) ────────────────
+function scrollToTurn(idx) {
+  requestAnimationFrame(() => {
+    const scroll = document.getElementById('chat-scroll');
+    const d = document.getElementById(`turn-${idx}`);
+    if (!scroll || !d) return;
+    scroll.scrollTop += d.getBoundingClientRect().top - scroll.getBoundingClientRect().top - 8;
+  });
+}
+
+function bindTurnEvents(el) {
+  el.querySelectorAll('[data-query]').forEach((b) => b.addEventListener('click', () => runQuery(b.dataset.query)));
+  el.querySelectorAll('[data-cite]').forEach((b) => b.addEventListener('click', () => {
+    const [i, j] = b.dataset.cite.split(':').map(Number);
+    const c = state.turns[i] && state.turns[i].citations && state.turns[i].citations[j];
+    if (c) showSourceOverlay(c);
+  }));
+  el.querySelectorAll('[data-fb]').forEach((b) => b.addEventListener('click', () => sendFeedback(Number(b.dataset.turn), b.dataset.fb)));
+}
+
+function appendTurnDom(turn, idx) {
+  const scroll = document.getElementById('chat-scroll');
+  if (!scroll) return;
+  const empty = document.getElementById('empty-chat'); if (empty) empty.remove();
+  const d = document.createElement('div');
+  d.className = 'turn'; d.id = `turn-${idx}`;
+  d.innerHTML = renderTurn(turn, idx, true);
+  scroll.appendChild(d);
+  bindTurnEvents(d);
+}
+
+function updateTurnDom(turn, idx) {
+  const d = document.getElementById(`turn-${idx}`);
+  if (!d) return;
+  d.innerHTML = renderTurn(turn, idx, true);
+  bindTurnEvents(d);
+}
+
+// Source viewer overlay appended without a full re-render.
+function showSourceOverlay(c) {
+  state.sourceView = c;
+  const existing = document.querySelector('.source-overlay'); if (existing) existing.remove();
+  const wrap = document.createElement('div');
+  wrap.innerHTML = renderSourceOverlay();
+  const node = wrap.firstElementChild;
+  if (!node) return;
+  document.getElementById('app').appendChild(node);
+  node.addEventListener('click', (e) => { if (e.target.closest('[data-src-close]') || e.target === node) { node.remove(); state.sourceView = null; } });
 }
 
 function screenBody() {
@@ -425,31 +487,12 @@ function screenBody() {
 
 let _prevScreen = null;
 function render() {
-  document.getElementById('app').innerHTML = `${renderHeader()}${screenBody()}${renderSourceOverlay()}`;
+  document.getElementById('app').innerHTML = `${renderHeader()}${screenBody()}`;
   if (state.screen !== _prevScreen) { window.scrollTo(0, 0); _prevScreen = state.screen; }
   bindEvents();
-  try { initGraph3D(); } catch (e) { /* graph errors must not block the UI */ }
+  try { syncWorkspaceGraph(); } catch (e) { /* graph errors must not block the UI */ }
   try { initExplorer(); } catch (e) { /* ignore */ }
-  scrollChatToLatest();
-}
-
-// Scrolls the chat container so the newest question sits at the top (answer below).
-// Uses container-relative math (robust) + a delayed retry for late layout.
-function scrollChatToLatest() {
-  const doScroll = () => {
-    const scroll = document.getElementById('chat-scroll');
-    if (!scroll) return;
-    const msgs = scroll.querySelectorAll('.user-message');
-    const last = msgs[msgs.length - 1];
-    if (last) {
-      const delta = last.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
-      scroll.scrollTop += delta - 8;
-    } else {
-      scroll.scrollTop = scroll.scrollHeight;
-    }
-  };
-  requestAnimationFrame(doScroll);
-  setTimeout(doScroll, 80);
+  if (state.screen === 'workspace' && state.turns.length) scrollToTurn(state.turns.length - 1);
 }
 
 const nodeAliases = {
@@ -800,10 +843,8 @@ function bindEvents() {
   document.querySelectorAll('[data-cite]').forEach((el) => el.addEventListener('click', () => {
     const [i, j] = el.dataset.cite.split(':').map(Number);
     const c = state.turns[i] && state.turns[i].citations && state.turns[i].citations[j];
-    if (c) { state.sourceView = c; render(); }
+    if (c) showSourceOverlay(c);
   }));
-  document.querySelectorAll('[data-src-close]').forEach((el) => el.addEventListener('click', () => { state.sourceView = null; render(); }));
-  const srcModal = $('.source-modal'); if (srcModal) srcModal.addEventListener('click', (e) => e.stopPropagation());
   // Feedback capture
   document.querySelectorAll('[data-fb]').forEach((el) => el.addEventListener('click', () => sendFeedback(Number(el.dataset.turn), el.dataset.fb)));
 }
