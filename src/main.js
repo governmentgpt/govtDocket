@@ -110,7 +110,8 @@ const graph = {
 const API_BASE_URL = (typeof window !== 'undefined' && window.WIKIGOV_API_URL) || '';
 
 const state = {
-  screen: 'home', lang: 'EN', query: '', selected: graph.root, mapOpen: true,
+  screen: 'home', lang: 'EN', query: '', selected: graph.root,
+  mapOpen: (typeof window !== 'undefined' ? window.innerWidth > 820 : true),   // closed by default on mobile so chat shows
   turns: [],   // conversational history: [{ query, answer, citations, graph, loading }]
   sessionGraph: { nodes: {}, edges: {} },   // cumulative map across the conversation
   home: null,  // { departments, schemes, recent } from /api/home

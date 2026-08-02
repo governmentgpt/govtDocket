@@ -50,16 +50,6 @@ export async function handleQuery(c) {
   const nodesMap = {};
   const edgesMap = {};
 
-  // ── STEP 1: Content retrieval — full-text search over ALL approved passages ──
-  // This is the primary path: it answers open-domain topic questions from the
-  // whole corpus (What's New, Gazette, GOs, dept updates), not just one node.
-  // Expand the retrieval query with recent user turns so follow-ups keep context.
-  const recentUser = history.filter((m) => m.role === 'user').slice(-2).map((m) => m.text).join(' ');
-  const ftsQuery = `${recentUser} ${queryText}`.trim();
-  const ftsRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'search_passages', {
-    query_text: ftsQuery,
-    match_count: 8,
-  });
   const addPassageRow = (r) => {
     if (seen.has(r.passage_id)) return;
     seen.add(r.passage_id);
@@ -73,41 +63,45 @@ export async function handleQuery(c) {
     }
   };
 
-  // ── STEP 1b: Semantic retrieval — embed the query, vector-match passages ─────
-  // Runs first so meaning-based hits (incl. Tamil / paraphrases) lead; FTS fills in.
-  const queryVec = await embedQuery(queryText, EMBED_API_KEY, EMBED_BASE_URL, EMBED_MODEL);
-  if (queryVec) {
-    const vecRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'match_passages', {
-      query_embedding: queryVec, match_count: 8,
-    });
-    if (!vecRes.error) for (const r of (vecRes.data || [])) addPassageRow(r);
-    else console.error('[RAG] match_passages error:', vecRes.error);
-  }
+  // Expand the retrieval query with recent user turns so follow-ups keep context.
+  const recentUser = history.filter((m) => m.role === 'user').slice(-2).map((m) => m.text).join(' ');
+  const ftsQuery = `${recentUser} ${queryText}`.trim();
 
+  // ── Retrieval wave 1 (parallel): embed query · FTS · alias match ─────────────
+  const [queryVec, ftsRes, aliasRes] = await Promise.all([
+    embedQuery(queryText, EMBED_API_KEY, EMBED_BASE_URL, EMBED_MODEL),
+    supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'search_passages', { query_text: ftsQuery, match_count: 8 }),
+    supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'match_node_aliases', { query_text: queryText }),
+  ]);
+  const rootNodeId = (!aliasRes.error && aliasRes.data && aliasRes.data.length) ? aliasRes.data[0].node_id : null;
+
+  // ── Retrieval wave 2 (parallel): vector match (needs embedding) · graph context ──
+  const [vecRes, contextRes] = await Promise.all([
+    queryVec
+      ? supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'match_passages', { query_embedding: queryVec, match_count: 8 })
+      : Promise.resolve({ data: [] }),
+    rootNodeId
+      ? supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'get_graph_rag_context', { root_node_id: rootNodeId, hops_count: 2 })
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  // Semantic hits lead; FTS fills in.
+  if (!vecRes.error) for (const r of (vecRes.data || [])) addPassageRow(r);
   if (ftsRes.error) console.error('[RAG] search_passages error:', ftsRes.error);
   else for (const r of (ftsRes.data || [])) addPassageRow(r);
 
-  // ── STEP 2: Entity/graph context — best-effort, powers the 3D knowledge map ──
-  const aliasRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'match_node_aliases', {
-    query_text: queryText,
-  });
-  if (!aliasRes.error && aliasRes.data && aliasRes.data.length) {
-    const rootNodeId = aliasRes.data[0].node_id;
-    const contextRes = await supabaseRpc(SUPABASE_URL, SUPABASE_ANON_KEY, 'get_graph_rag_context', {
-      root_node_id: rootNodeId, hops_count: 2,
-    });
-    if (!contextRes.error) {
-      for (const row of (contextRes.data || [])) {
-        if (row.node_id && !nodesMap[row.node_id]) {
-          nodesMap[row.node_id] = { id: row.node_id, type: row.node_type, title: row.node_title, summary: row.node_summary, details: row.node_details };
-        }
-        if (row.edge_id && !edgesMap[row.edge_id]) {
-          edgesMap[row.edge_id] = { id: row.edge_id, from: row.from_node_id, to: row.to_node_id, relationship: row.relationship_type };
-        }
-        if (row.passage_id && !seen.has(row.passage_id)) {
-          seen.add(row.passage_id);
-          passages.push({ id: row.passage_id, text: row.text_content, page: row.page_number, section: row.section_label, docTitle: row.document_title, authority: row.issuing_authority });
-        }
+  // Graph context → nodes/edges/evidence passages (powers the 3D map).
+  if (!contextRes.error) {
+    for (const row of (contextRes.data || [])) {
+      if (row.node_id && !nodesMap[row.node_id]) {
+        nodesMap[row.node_id] = { id: row.node_id, type: row.node_type, title: row.node_title, summary: row.node_summary, details: row.node_details };
+      }
+      if (row.edge_id && !edgesMap[row.edge_id]) {
+        edgesMap[row.edge_id] = { id: row.edge_id, from: row.from_node_id, to: row.to_node_id, relationship: row.relationship_type };
+      }
+      if (row.passage_id && !seen.has(row.passage_id)) {
+        seen.add(row.passage_id);
+        passages.push({ id: row.passage_id, text: row.text_content, page: row.page_number, section: row.section_label, docTitle: row.document_title, authority: row.issuing_authority });
       }
     }
   }
@@ -205,21 +199,17 @@ async function generateGroundedAnswer(query, passages, history, apiKey, model, b
   }
 
   const passagesContext = passages
-    .map(
-      (p, i) =>
-        `[Passage ${i + 1}] Source: "${p.docTitle}", Authority: "${p.authority}", ` +
-        `Page: ${p.page}, Section: "${p.section}"\nContent: "${p.text}"`
-    )
+    .map((p, i) => `[P${i + 1}] (Source: "${p.docTitle}", Page: ${p.page}) ${p.text}`)
     .join('\n\n');
 
   const systemPrompt =
     `You are the WikiGov QA Steward. Answer the citizen's question using ONLY the ` +
-    `verified passages provided below. Rules:\n` +
-    `1. Every factual claim must be followed by a citation token: [Source Name, Page N].\n` +
-    `2. Do NOT add any information that is not in the passages.\n` +
-    `3. If the passages do not contain the answer, reply exactly: "No verified information was found."\n` +
-    `4. Write in simple language suitable for a citizen unfamiliar with bureaucratic terms.\n\n` +
-    `Verified Passages:\n${passagesContext}`;
+    `verified passages below. Rules:\n` +
+    `1. After EVERY factual claim, cite the passage id in square brackets, e.g. [P1] or [P2][P3].\n` +
+    `2. Use ONLY information present in the passages — never add outside knowledge.\n` +
+    `3. If the passages do not answer the question, reply EXACTLY: "No verified information was found."\n` +
+    `4. Write in simple, clear language for a citizen.\n\n` +
+    `Passages:\n${passagesContext}`;
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method:  'POST',
@@ -253,7 +243,25 @@ async function generateGroundedAnswer(query, passages, history, apiKey, model, b
     console.error('[RAG] LLM returned no content:', JSON.stringify(result).slice(0, 800));
     throw new Error('LLM returned no content (check LLM_BASE_URL / LLM_MODEL)');
   }
-  return content;
+
+  // ── Grounding verification (feature #4): the answer must cite valid passage
+  //    ids [P#], or be the explicit refusal. Uncited or invented-citation answers
+  //    are treated as ungrounded (parametric/hallucinated) and refused. ─────────
+  const isRefusal = /no verified information was found/i.test(content);
+  if (!isRefusal) {
+    const cited = [...content.matchAll(/\[P(\d+)\]/g)].map((m) => Number(m[1]));
+    const invented = cited.some((n) => n < 1 || n > passages.length);
+    if (cited.length === 0 || invented) {
+      console.warn('[RAG] refused ungrounded answer (cited:', JSON.stringify(cited), ')');
+      return 'No verified information was found.';
+    }
+  }
+
+  // Render [P#] as a human-readable citation for display.
+  return content.replace(/\[P(\d+)\]/g, (m, n) => {
+    const p = passages[Number(n) - 1];
+    return p ? `[${p.docTitle}${p.page ? `, p.${p.page}` : ''}]` : m;
+  });
 }
 
 // ── Simulation fallback ───────────────────────────────────────────────────────
