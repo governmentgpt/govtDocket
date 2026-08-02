@@ -113,7 +113,49 @@ const state = {
   screen: 'home', lang: 'EN', query: '', selected: graph.root, mapOpen: true,
   turns: [],   // conversational history: [{ query, answer, citations, graph, loading }]
   sessionGraph: { nodes: {}, edges: {} },   // cumulative map across the conversation
+  home: null,  // { departments, schemes, recent } from /api/home
 };
+
+// ── Landing page data (real when the API is configured, else demo) ─────────────
+async function loadHome() {
+  if (!API_BASE_URL) return;
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/home`);
+    if (!res.ok) return;
+    const h = await res.json();
+    if (h && (h.departments?.length || h.schemes?.length || h.recent?.length)) {
+      state.home = h;
+      if (state.screen === 'home') render();
+    }
+  } catch (e) { /* keep demo data */ }
+}
+
+// Resolves each landing section to real data, falling back to demo per-section.
+function homeData() {
+  const h = state.home;
+  const schemes = (h && h.schemes) || [];
+  const depts = (h && h.departments) || [];
+  const recent = (h && h.recent) || [];
+  const topics = schemes.slice(0, 8).map((s) => s.title);
+  return {
+    topics: topics.length ? topics : data.topics,
+    schemes: schemes.length
+      ? schemes.slice(0, 4).map((s) => ({ name: s.title, dept: s.department || 'Government of Tamil Nadu', updated: '' }))
+      : data.schemes,
+    releases: recent.length
+      ? recent.slice(0, 4).map((r) => [(r.doc_type || 'Document').toUpperCase(), r.title, r.date])
+      : data.releases.map(([t, title]) => [t, title, '']),
+    categories: depts.length ? depts.map((d) => d.title) : data.categories,
+    live: !!(h && (schemes.length || depts.length || recent.length)),
+  };
+}
+
+function fmtDate(d) {
+  if (!d) return '';
+  try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); } catch (e) { return d; }
+}
+
+function shorten(s, n = 28) { return s && s.length > n ? `${s.slice(0, n - 1)}…` : s; }
 
 // ── Live retrieval API ─────────────────────────────────────────────────────────
 async function askApi(query, history) {
@@ -212,6 +254,7 @@ function renderHeader() {
 }
 
 function renderHome() {
+  const h = homeData();
   return `<main class="home-page">
     <section class="hero">
       <div class="hero-copy"><p class="eyebrow light">TAMIL NADU · PUBLIC ACCESS</p><h1>Search verified<br />Government Knowledge.</h1><p>Ask in simple language. Every production answer will be traceable to an approved Government Order, Act, circular, notification, or department source.</p></div>
@@ -219,16 +262,16 @@ function renderHome() {
         ${icon('search')}<input id="hero-query" value="${esc(state.query)}" autocomplete="off" placeholder="Ask about schemes, GO, Acts, departments, applications..." aria-label="Ask WikiGov" />
         <button type="submit">Ask ${icon('arrow')}</button>
       </form>
-      <div class="topic-row"><span>Popular topics</span>${data.topics.map((topic) => `<button class="topic-chip" data-query="${esc(topic)}">${esc(topic)}</button>`).join('')}</div>
+      <div class="topic-row"><span>Popular topics</span>${h.topics.map((topic) => `<button class="topic-chip" data-query="${esc(topic)}">${esc(shorten(topic))}</button>`).join('')}</div>
     </section>
-    <section class="content-section schemes-section"><div class="section-heading"><div><p class="eyebrow">START HERE</p><h2>Explore Government services</h2><p>Designed around everyday citizen questions.</p></div><button class="text-button" data-action="workspace">Open knowledge workspace ${icon('arrow')}</button></div>
-      <div class="scheme-grid">${data.schemes.map((scheme) => `<button class="scheme-card" data-query="${esc(scheme.name)}"><span class="official-dot"><i></i> GOVERNMENT SERVICE</span><strong>${esc(scheme.name)}</strong><span>${esc(scheme.dept)}</span><small>${esc(scheme.updated)}</small></button>`).join('')}</div>
+    <section class="content-section schemes-section"><div class="section-heading"><div><p class="eyebrow">START HERE</p><h2>Explore Government services</h2><p>Designed around everyday citizen questions.</p></div><button class="text-button" data-action="explore">Open knowledge map ${icon('arrow')}</button></div>
+      <div class="scheme-grid">${h.schemes.map((scheme) => `<button class="scheme-card" data-query="${esc(scheme.name)}"><span class="official-dot"><i></i> GOVERNMENT SERVICE</span><strong>${esc(scheme.name)}</strong><span>${esc(scheme.dept)}</span>${scheme.updated ? `<small>${esc(scheme.updated)}</small>` : ''}</button>`).join('')}</div>
     </section>
-    <section class="content-section release-section"><div class="section-heading"><div><p class="eyebrow">LIVE GOVERNMENT RECORD</p><h2>Recently updated policies</h2><p>Verified updates will appear here as sources are approved.</p></div></div>
-      <div class="release-list">${data.releases.map(([type, title], index) => `<div class="release-item"><time>COMING<br />SOON</time><span class="timeline-dot"></span><div><b>${type}</b><p>${title}</p></div><button aria-label="Explore ${type}" data-action="workspace">${icon('arrow')}</button></div>`).join('')}</div>
+    <section class="content-section release-section"><div class="section-heading"><div><p class="eyebrow">LIVE GOVERNMENT RECORD</p><h2>Recently updated</h2><p>${h.live ? 'Latest approved Government documents.' : 'Verified updates will appear here as sources are approved.'}</p></div></div>
+      <div class="release-list">${h.releases.map(([type, title, date]) => `<div class="release-item">${date ? `<time>${esc(fmtDate(date))}</time>` : '<time>COMING<br />SOON</time>'}<span class="timeline-dot"></span><div><b>${esc(type)}</b><p>${esc(title)}</p></div><button aria-label="Explore" data-query="${esc(title)}">${icon('arrow')}</button></div>`).join('')}</div>
     </section>
-    <section class="content-section category-section"><p class="eyebrow">BROWSE BY TOPIC</p><h2>Find the right starting point</h2><div class="category-grid">${data.categories.map((category) => `<button data-query="${esc(category)}">${esc(category)} ${icon('arrow')}</button>`).join('')}</div></section>
-    <footer><span>This interface uses demonstration data until official sources are connected and approved.</span><div><a href="#">Source policy</a><a href="#">Accessibility</a><a href="#">Privacy</a></div></footer>
+    <section class="content-section category-section"><p class="eyebrow">BROWSE BY DEPARTMENT</p><h2>Find the right starting point</h2><div class="category-grid">${h.categories.map((category) => `<button data-query="${esc(category)}">${esc(shorten(category, 34))} ${icon('arrow')}</button>`).join('')}</div></section>
+    <footer><span>${h.live ? 'Answers are grounded in approved Tamil Nadu Government sources.' : 'This interface uses demonstration data until official sources are connected and approved.'}</span><div><a href="#">Source policy</a><a href="#">Accessibility</a><a href="#">Privacy</a></div></footer>
   </main>`;
 }
 
@@ -623,3 +666,4 @@ function bindEvents() {
 }
 
 render();
+loadHome();   // fetch real landing-page data (departments / schemes / recent), then re-render

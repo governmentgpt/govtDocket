@@ -16,7 +16,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { handleQuery } from './routes/query.js';
-import { handleGraph, handleNode } from './routes/graph.js';
+import { handleGraph, handleNode, handleHome } from './routes/graph.js';
 
 const app = new Hono();
 
@@ -55,6 +55,7 @@ app.post('/api/query', handleQuery);
 // ── Graph explorer (3D Explore tab) ──────────────────────────────────────────
 app.get('/api/graph', handleGraph);
 app.get('/api/node', handleNode);
+app.get('/api/home', handleHome);
 
 // ── 404 fallback ─────────────────────────────────────────────────────────────
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

@@ -57,6 +57,32 @@ export async function handleNode(c) {
   return c.json({ node, neighbors: Object.values(neighbors), citations });
 }
 
+// ── Landing page data (departments + schemes + recent) in one call ───────────
+export async function handleHome(c) {
+  const URL = c.env.SUPABASE_URL;
+  const KEY = c.env.SUPABASE_ANON_KEY;
+  if (!URL || !KEY) return c.json(demoHome());
+
+  const res = await supabaseRpc(URL, KEY, 'get_home_data', { scheme_limit: 8, recent_limit: 6 });
+  if (res.error || !res.data) return c.json(demoHome());
+  return c.json(res.data);
+}
+
+function demoHome() {
+  return {
+    departments: [
+      { id: 'dept-finance', title: 'Finance Department' },
+      { id: 'dept-health', title: 'Health and Family Welfare Department' },
+      { id: 'dept-revenue', title: 'Revenue and Disaster Management Department' },
+      { id: 'dept-social-welfare', title: 'Social Welfare and Women Empowerment Department' },
+    ],
+    schemes: [
+      { id: 'widow-pension-scheme', title: 'Kalaignar Magalir Urimai Thittam', department: 'Social Welfare and Women Empowerment Department' },
+    ],
+    recent: [],
+  };
+}
+
 // ── Supabase RPC helper (native fetch; no supabase-js) ───────────────────────
 async function supabaseRpc(url, anonKey, fnName, body) {
   const res = await fetch(`${url}/rest/v1/rpc/${fnName}`, {
